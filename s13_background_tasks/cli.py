@@ -32,12 +32,12 @@ def main() -> None:
     compactor = Compactor(client=cfg["client"], model=cfg["model"])
     memory = Memory(client=cfg["client"], model=cfg["model"], memory_dir=Path.cwd() / ".memory")
     memory.memory_dir.mkdir(parents=True, exist_ok=True)
-    print("s12: Task System — persistent task graph")
+    print("s13: Background Tasks — async slow ops")
     print("Type a question, press Enter. Type q to quit.\n")
     history: list = []
     while True:
         try:
-            query = input("\033[36ms12 >> \033[0m")
+            query = input("\033[36ms13 >> \033[0m")
         except (EOFError, KeyboardInterrupt):
             break
         if query.strip().lower() in ("q", "exit", ""):
