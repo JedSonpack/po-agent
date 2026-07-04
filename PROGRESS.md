@@ -20,7 +20,7 @@
 | s07 | Skill Loading | ✅ | [`s07_skill_loading/`](s07_skill_loading/) | 技能按需加载，用到才读 |
 | s08 | Context Compact | ✅ | [`s08_context_compact/`](s08_context_compact/) | 上下文满了想办法压缩腾地方 |
 | s09 | Memory | ✅ | [`s09_memory/`](s09_memory/) | 持久记忆层，存压缩会丢的关键细节 |
-| s10 | System Prompt | ⬜ | `s10_system_prompt/` | 运行时组装系统提示，不硬编码 |
+| s10 | System Prompt | ✅ | [`s10_system_prompt/`](s10_system_prompt/) | 运行时组装系统提示，不硬编码 |
 | s11 | Error Recovery | ⬜ | `s11_error_recovery/` | 错误重试与恢复策略 |
 | s12 | Task System | ⬜ | `s12_task_system/` | 大目标拆成可追踪的小任务 |
 | s13 | Background Tasks | ⬜ | `s13_background_tasks/` | 慢操作放后台执行 |
@@ -97,6 +97,13 @@
 - 要点：持久跨会话记忆（`memory.py` `Memory` 类）——`.memory/` 存记忆文件（YAML frontmatter + body）+ `MEMORY.md` 索引；SYSTEM 注索引（`build_index_section`）；`load_memories` 按需注入相关记忆到 user 轮（LLM 选+关键词回退）；turn 结束 `extract_memories`（LLM 抽 `{name,type,description,body}`）+ `consolidate_memories`（≥10 合并）；`pre_compress` stringify 快照保真；`Memory` 注入 `agent_loop`；保留 s08 全部机制；无新工具
 - 关键发现：glm-5.2 是推理模型，memory 的 LLM 调用（select/extract/consolidate）需大 `max_tokens`（2000/4000/4000）——参考的 200/800 会被 thinking 吃光、无 text 输出
 - 验收：137/137 测试通过（全量 572）；实时跑通——`[Memory: extracted 3 new memories]`，`.memory/` 落 3 记忆文件 + MEMORY.md 索引
+
+### s10 — System Prompt ✅
+- 目录：[`s10_system_prompt/`](s10_system_prompt/)（config / tools / skills / hooks / todo / subagent / compact / memory / system_prompt / agent / cli / __main__ + tests）
+- 规格：[`docs/superpowers/specs/2026-07-04-s10-system-prompt-design.md`](docs/superpowers/specs/2026-07-04-s10-system-prompt-design.md)
+- 计划：[`docs/superpowers/plans/2026-07-04-s10-system-prompt.md`](docs/superpowers/plans/2026-07-04-s10-system-prompt.md)
+- 要点：运行时段落化组装系统提示（`system_prompt.py`）——`PROMPT_SECTIONS`（identity/tools/workspace/skills）+ memory 段（动态来自 `Memory.build_index_section()`）；`assemble_system_prompt(context)` 选段 `\n\n` 拼（memory 段仅索引非空时加）；`get_system_prompt(context)` 单槽缓存（`json.dumps(sort_keys=True)` key，命中 `[cache hit]`/未命中 `[assembled] sections: ...`）；`build_context` 从组件构造；`agent_loop` **drop `system` 改 `context`**，每轮重算 context（重读 memory 索引）+ 取缓存 prompt；保留 s09 全部机制；无新工具
+- 验收：148/148 测试通过（全量 720）；实时跑通——首轮 `[assembled] sections: identity, tools, workspace, skills`，后续 tool 轮 `[cache hit]`，模型调 glob+bash 回答
 
 ---
 
