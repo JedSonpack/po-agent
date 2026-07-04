@@ -23,7 +23,7 @@
 | s10 | System Prompt | ✅ | [`s10_system_prompt/`](s10_system_prompt/) | 运行时组装系统提示，不硬编码 |
 | s11 | Error Recovery | ✅ | [`s11_error_recovery/`](s11_error_recovery/) | 错误重试与恢复策略 |
 | s12 | Task System | ✅ | [`s12_task_system/`](s12_task_system/) | 大目标拆成可追踪的小任务 |
-| s13 | Background Tasks | ⬜ | `s13_background_tasks/` | 慢操作放后台执行 |
+| s13 | Background Tasks | ✅ | [`s13_background_tasks/`](s13_background_tasks/) | 慢操作放后台执行 |
 | s14 | Cron Scheduler | ⬜ | `s14_cron_scheduler/` | 按时间表触发任务 |
 | s15 | Agent Teams | ⬜ | `s15_agent_teams/` | 多 agent 组队协作 |
 | s16 | Team Protocols | ⬜ | `s16_team_protocols/` | 队友之间的通信协议 |
@@ -118,6 +118,13 @@
 - 计划：[`docs/superpowers/plans/2026-07-04-s12-task-system.md`](docs/superpowers/plans/2026-07-04-s12-task-system.md)
 - 要点：文件持久化任务图（`tasks.py`）——`Task` dataclass（id/subject/description/status/owner/blockedBy）+ `.tasks/{id}.json`；`can_start`（blockedBy 全 completed，缺失=blocked 不抛，不递归）；`claim_task`（pending+can_start→in_progress+owner）/`complete_task`（→completed，扫描报 `Unblocked` 下游）；5 工具 handler 进 `TOOL_HANDLERS`+`make_tools()`（14）；`agent_loop` 不改（任务工具经 run_tool 自动分发）；保留 s11 全部
 - 验收：192/192 测试通过（全量 1073）；实时跑通——agent 调 create_task/list_tasks/claim_task/complete_task，`.tasks/` 落 JSON，依赖图解锁下游
+
+### s13 — Background Tasks ✅
+- 目录：[`s13_background_tasks/`](s13_background_tasks/)（background / tasks / recovery / config / tools / skills / hooks / todo / subagent / compact / memory / system_prompt / agent / cli / __main__ + tests）
+- 规格：[`docs/superpowers/specs/2026-07-04-s13-background-tasks-design.md`](docs/superpowers/specs/2026-07-04-s13-background-tasks-design.md)
+- 计划：[`docs/superpowers/plans/2026-07-04-s13-background-tasks.md`](docs/superpowers/plans/2026-07-04-s13-background-tasks.md)
+- 要点：慢操作异步化（`background.py`）——`is_slow_operation`（bash 关键词启发）/`should_run_background`（run_in_background 显式优先）/`start_background_task(block, run_tool)`（daemon 线程，worker try/except 不泄漏）/`collect_background_results`（pop completed → `<task_notification>`，summary 截 200）；bash schema 加 `run_in_background`；`agent_loop` PreToolUse 后判后台派发 + 占位 tool_result，构造 user 消息前收集通知作 text block 追加（results 在前、通知在后）；不复用 tool_use_id；保留 s12 全部；无新工具
+- 验收：216/216 测试通过（全量 1289）；实时跑通——`[background] dispatched bg_0001`（sleep 2 后台），glob 同步返回不阻塞
 
 ---
 
