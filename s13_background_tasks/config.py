@@ -30,7 +30,7 @@ def build_sub_system_prompt(cwd: str) -> str:
 def make_tools() -> list[dict]:
     return [
         {"name": "bash", "description": "Run a shell command.",
-         "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
+         "input_schema": {"type": "object", "properties": {"command": {"type": "string"}, "run_in_background": {"type": "boolean"}}, "required": ["command"]}},
         {"name": "read_file", "description": "Read file contents.",
          "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["path"]}},
         {"name": "write_file", "description": "Write content to a file.",

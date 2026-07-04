@@ -16,8 +16,9 @@ MAX_OUTPUT = 50000
 CURRENT_TODOS: list[dict] = []
 
 
-def run_bash(command: str) -> str:
+def run_bash(command: str, run_in_background: bool = False) -> str:
     # s04：危险检查在 permission_hook（PreToolUse），这里只执行
+    # s13：run_in_background 由 agent_loop dispatch 层判断，此处忽略
     try:
         r = subprocess.run(command, shell=True, cwd=WORKDIR,
                            capture_output=True, text=True, timeout=TIMEOUT)

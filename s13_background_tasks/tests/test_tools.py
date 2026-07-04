@@ -219,3 +219,10 @@ def test_run_tool_dispatch_list_tasks():
 
 def test_run_tool_dispatch_get_task_not_found():
     assert run_tool("get_task", {"task_id": "task_0_0000"}) == "Error: Task task_0_0000 not found"
+
+
+# ── s13 新增：run_in_background 参数 ────────────────────────
+def test_run_bash_ignores_run_in_background():
+    # 参数接收但不影响同步执行
+    out = run_bash("echo hi", run_in_background=True)
+    assert "hi" in out

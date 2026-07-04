@@ -34,3 +34,9 @@ def test_prepare_env_pops_auth_token_when_base_url_set(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "secret")
     prepare_env()
     assert "ANTHROPIC_AUTH_TOKEN" not in os.environ
+
+
+def test_bash_schema_has_run_in_background():
+    bash = next(t for t in make_tools() if t["name"] == "bash")
+    assert "run_in_background" in bash["input_schema"]["properties"]
+    assert bash["input_schema"]["required"] == ["command"]
