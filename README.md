@@ -2,6 +2,8 @@
 
 逐步实现 [learn-claude-code](https://github.com/shareAI-lab/learn-claude-code) 的 Claude Code 学习项目。
 
+**20 阶段进度总览：[PROGRESS.md](PROGRESS.md)**
+
 ## 环境
 
 - Python 3.11，通过 [uv](https://docs.astral.sh/uv/) 管理的虚拟环境（不在本机安装 Python）
