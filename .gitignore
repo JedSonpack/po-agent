@@ -1,0 +1,43 @@
+# ---- Python ----
+__pycache__/
+*.py[codz]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# ---- Virtual environments ----
+.venv/
+venv/
+env/
+ENV/
+
+# ---- Secrets & local config (NEVER commit) ----
+.env
+.env.*
+!.env.example
+.claude/settings.local.json
+
+# ---- Claude Code / agent runtime artifacts ----
+.transcripts/
+.memory/
+.task_outputs/
+.tasks/
+.teams/
+.mailboxes/
+.worktrees/
+.scheduled_tasks.json
+
+# ---- IDE ----
+.idea/
+.vscode/
+
+# ---- OS ----
+.DS_Store
+
+# ---- Test / lint caches ----
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
