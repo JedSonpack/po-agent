@@ -15,7 +15,7 @@
 | s02 | Tool Use | ✅ | [`s02_tool_use/`](s02_tool_use/) | 5 工具（bash/read/write/edit/glob）+ 查表分发，模型可一次调多个 |
 | s03 | Permission | ✅ | [`s03_permission/`](s03_permission/) | 三道闸门权限管线（硬拒绝/规则/审批）插在工具执行前 |
 | s04 | Hooks | ✅ | [`s04_hooks/`](s04_hooks/) | hook 系统：扩展逻辑（权限/日志/收尾）挂循环上，不写进循环 |
-| s05 | TodoWrite | ⬜ | `s05_todo_write/` | 给 agent 一个任务清单，防止跑偏 |
+| s05 | TodoWrite | ✅ | [`s05_todo_write/`](s05_todo_write/) | 给 agent 一个任务清单，防止跑偏 |
 | s06 | Subagent | ⬜ | `s06_subagent/` | 大任务拆给子 agent，子任务拿干净上下文 |
 | s07 | Skill Loading | ⬜ | `s07_skill_loading/` | 技能按需加载，用到才读 |
 | s08 | Context Compact | ⬜ | `s08_context_compact/` | 上下文满了想办法压缩腾地方 |
@@ -61,6 +61,13 @@
 - 计划：[`docs/superpowers/plans/2026-07-04-s04-hooks.md`](docs/superpowers/plans/2026-07-04-s04-hooks.md)
 - 要点：hook 系统（4 事件 UserPromptSubmit/PreToolUse/PostToolUse/Stop + `register_hook`/`trigger_hooks`）；s03 权限逻辑移进 `permission_hook`；`agent_loop` 注入 `trigger`，无 `check_permission`/`on_tool_use`；5 个 hook 回调
 - 验收：37/37 测试通过；实时跑通——`[HOOK]` 日志在 UserPromptSubmit/PreToolUse(log)/Stop(summary) 各触发点出现
+
+### s05 — TodoWrite ✅
+- 目录：[`s05_todo_write/`](s05_todo_write/)（config / tools / hooks / todo / agent / cli / __main__ + tests）
+- 规格：[`docs/superpowers/specs/2026-07-04-s05-todo-write-design.md`](docs/superpowers/specs/2026-07-04-s05-todo-write-design.md)
+- 计划：[`docs/superpowers/plans/2026-07-04-s05-todo-write.md`](docs/superpowers/plans/2026-07-04-s05-todo-write.md)
+- 要点：`todo_write` 规划工具（`_normalize_todos` 校验 list/JSON/ast 字符串 + `CURRENT_TODOS` 内存态 + `run_todo_write` 彩色输出）经 `TOOL_HANDLERS` 自动分发；`TodoNag` 机制（连续 3 tool 轮未更新 todo → 注入 `<reminder>`，调 todo_write 归零）注入 `agent_loop`（`nag=None` 默认）；SYSTEM 加 "use todo_write to plan"；hooks 同 s04
+- 验收：54/54 测试通过（全量 163）；实时跑通——模型首工具即 `todo_write` 列 5 步，执行中 status `pending→in_progress→completed`，nag 未触发（按时更新），demo_pkg 测试通过
 
 ---
 

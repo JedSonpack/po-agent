@@ -42,6 +42,7 @@ po-agent/s05_todo_write/
 ├── __init__.py
 ├── config.py     # env + client/MODEL/SYSTEM(加规划引导)/TOOLS(6)/load
 ├── tools.py      # s04 工具 + CURRENT_TODOS/_normalize_todos/run_todo_write + TOOL_HANDLERS+todo_write
+├── hooks.py      # s04 原样复制（HOOKS + register/trigger + 5 hook 回调 + register_defaults）
 ├── todo.py       # 新：TodoNag（maybe_nag/on_round/on_todo_write）
 ├── agent.py      # agent_loop：注入 nag=None，调 maybe_nag/on_round/on_todo_write
 ├── cli.py        # REPL（s05 >>，register_defaults + trigger UserPromptSubmit + 构造 TodoNag）
