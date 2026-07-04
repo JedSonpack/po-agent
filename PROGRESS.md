@@ -21,7 +21,7 @@
 | s08 | Context Compact | ✅ | [`s08_context_compact/`](s08_context_compact/) | 上下文满了想办法压缩腾地方 |
 | s09 | Memory | ✅ | [`s09_memory/`](s09_memory/) | 持久记忆层，存压缩会丢的关键细节 |
 | s10 | System Prompt | ✅ | [`s10_system_prompt/`](s10_system_prompt/) | 运行时组装系统提示，不硬编码 |
-| s11 | Error Recovery | ⬜ | `s11_error_recovery/` | 错误重试与恢复策略 |
+| s11 | Error Recovery | ✅ | [`s11_error_recovery/`](s11_error_recovery/) | 错误重试与恢复策略 |
 | s12 | Task System | ⬜ | `s12_task_system/` | 大目标拆成可追踪的小任务 |
 | s13 | Background Tasks | ⬜ | `s13_background_tasks/` | 慢操作放后台执行 |
 | s14 | Cron Scheduler | ⬜ | `s14_cron_scheduler/` | 按时间表触发任务 |
@@ -104,6 +104,13 @@
 - 计划：[`docs/superpowers/plans/2026-07-04-s10-system-prompt.md`](docs/superpowers/plans/2026-07-04-s10-system-prompt.md)
 - 要点：运行时段落化组装系统提示（`system_prompt.py`）——`PROMPT_SECTIONS`（identity/tools/workspace/skills）+ memory 段（动态来自 `Memory.build_index_section()`）；`assemble_system_prompt(context)` 选段 `\n\n` 拼（memory 段仅索引非空时加）；`get_system_prompt(context)` 单槽缓存（`json.dumps(sort_keys=True)` key，命中 `[cache hit]`/未命中 `[assembled] sections: ...`）；`build_context` 从组件构造；`agent_loop` **drop `system` 改 `context`**，每轮重算 context（重读 memory 索引）+ 取缓存 prompt；保留 s09 全部机制；无新工具
 - 验收：148/148 测试通过（全量 720）；实时跑通——首轮 `[assembled] sections: identity, tools, workspace, skills`，后续 tool 轮 `[cache hit]`，模型调 glob+bash 回答
+
+### s11 — Error Recovery ✅
+- 目录：[`s11_error_recovery/`](s11_error_recovery/)（recovery / config / tools / skills / hooks / todo / subagent / compact / memory / system_prompt / agent / cli / __main__ + tests）
+- 规格：[`docs/superpowers/specs/2026-07-04-s11-error-recovery-design.md`](docs/superpowers/specs/2026-07-04-s11-error-recovery-design.md)
+- 计划：[`docs/superpowers/plans/2026-07-04-s11-error-recovery.md`](docs/superpowers/plans/2026-07-04-s11-error-recovery.md)
+- 要点：LLM 调用韧性外壳（`recovery.py`）——`RecoveryState` 跨迭代跟踪；`with_retry(fn, state)` 429/529 指数退避重试（最多 10 次），529 连续 3 次切 `FALLBACK_MODEL`；`retry_delay`（min(500×2^a,32000)/1000 + 抖动）；`is_prompt_too_long_error`；`agent_loop` LLM 调用包 `with_retry`，`stop_reason=="max_tokens"` → 升级 8K→64K（1 次不 append）→ 续写（3 次），outer except prompt_too_long→reactive_compact（1 次，复用 s08），不可恢复→追加 `[Error]` 优雅返回（s08 raise 改为优雅返回）；保留 s10 全部；无新工具
+- 验收：161/161 测试通过（全量 881）；实时跑通——正常路径行为同 s10，recovery 路径异常时自动生效
 
 ---
 
