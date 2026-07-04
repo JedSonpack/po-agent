@@ -37,16 +37,22 @@ class FakeClient:
 
 @pytest.fixture(autouse=True)
 def _reset():
-    from s14_cron_scheduler import background
+    from s14_cron_scheduler import background, cron
     reset_cache()
     background._bg_counter = 0
     background.background_tasks.clear()
     background.background_results.clear()
+    cron.cron_queue.clear()
+    cron.scheduled_jobs.clear()
+    cron._last_fired.clear()
     yield
     reset_cache()
     background._bg_counter = 0
     background.background_tasks.clear()
     background.background_results.clear()
+    cron.cron_queue.clear()
+    cron.scheduled_jobs.clear()
+    cron._last_fired.clear()
 
 
 def test_allowed_tool_runs():
@@ -477,3 +483,16 @@ def test_no_collect_when_stop_without_tool_use():
                run_tool=lambda n, i: "OUT", trigger=lambda ev, *a: None)
     assert len(msgs) == 2  # user + assistant，无通知注入
     assert "bg_0001" in background.background_tasks  # 未收集
+
+
+# ── s14 新增：cron 队列消费 ─────────────────────────────────
+def test_cron_queue_injected_as_scheduled():
+    from s14_cron_scheduler import cron
+    from s14_cron_scheduler.cron import CronJob
+    cron.cron_queue.append(CronJob("cron_1", "* * * * *", "check progress", True, False))
+    client = FakeClient([make_response([text_block("done")], "end_turn")])
+    msgs = [{"role": "user", "content": "x"}]
+    agent_loop(client=client, model="m", context=ctx(), tools=[], messages=msgs,
+               run_tool=lambda n, i: "OUT", trigger=lambda ev, *a: None)
+    # [Scheduled] user 消息已注入
+    assert any("[Scheduled] check progress" == str(m.get("content", "")) for m in msgs)

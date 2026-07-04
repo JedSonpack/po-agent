@@ -1,4 +1,4 @@
-"""核心 agent 循环（s13）：s12 + 后台任务（慢操作 daemon 派发 + <task_notification> 注入）。"""
+"""核心 agent 循环（s14）：s13 + cron 调度（顶部消费 cron 队列注入 [Scheduled]）。"""
 from typing import Callable
 
 from s14_cron_scheduler.system_prompt import build_context, get_system_prompt
@@ -7,6 +7,7 @@ from s14_cron_scheduler.recovery import (RecoveryState, with_retry, is_prompt_to
                                            MAX_RECOVERY_RETRIES, CONTINUATION_PROMPT)
 from s14_cron_scheduler.background import (should_run_background, start_background_task,
                                              collect_background_results)
+from s14_cron_scheduler.cron import consume_cron_queue
 
 
 def _stringify(content) -> str:
@@ -29,6 +30,9 @@ def agent_loop(*, client, model, context, tools, messages, run_tool,
     memory_turn = (len(messages) - 1) if (memory and messages
                                           and isinstance(messages[-1].get("content"), str)) else None
     while True:
+        # s14: 消费已触发的 cron 任务 → 注入 [Scheduled] 消息
+        for job in consume_cron_queue():
+            messages.append({"role": "user", "content": f"[Scheduled] {job.prompt}"})
         # s09: 压缩前 stringify 快照（提取保真）
         pre_compress = ([{"role": m.get("role", ""), "content": _stringify(m.get("content", ""))}
                          for m in messages] if memory else None)
