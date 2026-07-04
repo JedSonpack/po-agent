@@ -24,7 +24,7 @@
 | s11 | Error Recovery | ✅ | [`s11_error_recovery/`](s11_error_recovery/) | 错误重试与恢复策略 |
 | s12 | Task System | ✅ | [`s12_task_system/`](s12_task_system/) | 大目标拆成可追踪的小任务 |
 | s13 | Background Tasks | ✅ | [`s13_background_tasks/`](s13_background_tasks/) | 慢操作放后台执行 |
-| s14 | Cron Scheduler | ⬜ | `s14_cron_scheduler/` | 按时间表触发任务 |
+| s14 | Cron Scheduler | ✅ | [`s14_cron_scheduler/`](s14_cron_scheduler/) | 按时间表触发任务 |
 | s15 | Agent Teams | ⬜ | `s15_agent_teams/` | 多 agent 组队协作 |
 | s16 | Team Protocols | ⬜ | `s16_team_protocols/` | 队友之间的通信协议 |
 | s17 | Autonomous Agents | ⬜ | `s17_autonomous_agents/` | 自治 agent，自己看板、自己认领 |
@@ -125,6 +125,13 @@
 - 计划：[`docs/superpowers/plans/2026-07-04-s13-background-tasks.md`](docs/superpowers/plans/2026-07-04-s13-background-tasks.md)
 - 要点：慢操作异步化（`background.py`）——`is_slow_operation`（bash 关键词启发）/`should_run_background`（run_in_background 显式优先）/`start_background_task(block, run_tool)`（daemon 线程，worker try/except 不泄漏）/`collect_background_results`（pop completed → `<task_notification>`，summary 截 200）；bash schema 加 `run_in_background`；`agent_loop` PreToolUse 后判后台派发 + 占位 tool_result，构造 user 消息前收集通知作 text block 追加（results 在前、通知在后）；不复用 tool_use_id；保留 s12 全部；无新工具
 - 验收：216/216 测试通过（全量 1289）；实时跑通——`[background] dispatched bg_0001`（sleep 2 后台），glob 同步返回不阻塞
+
+### s14 — Cron Scheduler ✅
+- 目录：[`s14_cron_scheduler/`](s14_cron_scheduler/)（cron / background / tasks / recovery / config / tools / skills / hooks / todo / subagent / compact / memory / system_prompt / agent / cli / __main__ + tests）
+- 规格：[`docs/superpowers/specs/2026-07-04-s14-cron-scheduler-design.md`](docs/superpowers/specs/2026-07-04-s14-cron-scheduler-design.md)
+- 计划：[`docs/superpowers/plans/2026-07-04-s14-cron-scheduler.md`](docs/superpowers/plans/2026-07-04-s14-cron-scheduler.md)
+- 要点：按时间表触发（`cron.py`）——`CronJob` dataclass；`cron_matches`/`_cron_field_matches`（5 字段，DOM/DOW OR 语义，dow 换算 `(weekday+1)%7`）；`validate_cron`；`schedule_job`/`cancel_job` + `save/load_durable_jobs`（`.scheduled_tasks.json`，load 跳过非法）；`_check_and_fire(now)` 纯函数（minute_marker 去重，one-shot 删除）+ `cron_scheduler_loop` daemon + `queue_processor_loop`（agent 空闲时拉起 turn）+ `agent_lock`；`start_scheduler(run_turn)` 显式启动（po-agent 改进：import 不起线程）；3 工具；`agent_loop` 顶部 `consume_cron_queue` 注入 `[Scheduled]`；cli `run_turn`+`agent_lock`；保留 s13 全部
+- 验收：263/263 测试通过（全量 1552）；实时跑通——`schedule_cron` 注册 → `[cron fire]` 调度线程触发 → agent 消费 `[Scheduled]` 执行提示词
 
 ---
 
