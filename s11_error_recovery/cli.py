@@ -32,7 +32,7 @@ def main() -> None:
     compactor = Compactor(client=cfg["client"], model=cfg["model"])
     memory = Memory(client=cfg["client"], model=cfg["model"], memory_dir=Path.cwd() / ".memory")
     memory.memory_dir.mkdir(parents=True, exist_ok=True)
-    print("s11: Error Recovery — retry &amp; graceful recovery")
+    print("s11: Error Recovery — retry & graceful recovery")
     print("Type a question, press Enter. Type q to quit.\n")
     history: list = []
     while True:
