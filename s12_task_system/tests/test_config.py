@@ -4,10 +4,11 @@ from s12_task_system.config import (build_context, build_sub_system_prompt,
                                       make_tools, make_sub_tools, prepare_env)
 
 
-def test_make_tools_has_nine_with_compact():
+def test_make_tools_has_fourteen_with_tasks():
     names = [t["name"] for t in make_tools()]
     assert names == ["bash", "read_file", "write_file", "edit_file", "glob",
-                     "todo_write", "task", "load_skill", "compact"]
+                     "todo_write", "task", "load_skill", "compact",
+                     "create_task", "list_tasks", "get_task", "claim_task", "complete_task"]
 
 
 def test_make_sub_tools_has_five():

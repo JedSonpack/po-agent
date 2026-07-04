@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Callable
 
 from s12_task_system.skills import load_skill
+from s12_task_system.tasks import (run_create_task, run_list_tasks, run_get_task,
+                                   run_claim_task, run_complete_task)
 
 WORKDIR = Path.cwd()
 TIMEOUT = 120
@@ -113,7 +115,11 @@ def run_todo_write(todos: list) -> str:
 
 TOOL_HANDLERS = {"bash": run_bash, "read_file": run_read, "write_file": run_write,
                  "edit_file": run_edit, "glob": run_glob, "todo_write": run_todo_write,
-                 "load_skill": load_skill}
+                 "load_skill": load_skill,
+                 # s12: 任务系统 5 工具
+                 "create_task": run_create_task, "list_tasks": run_list_tasks,
+                 "get_task": run_get_task, "claim_task": run_claim_task,
+                 "complete_task": run_complete_task}
 
 # s06: 子 agent 用 5 工具（无 todo_write 无 task 无 load_skill，防递归）
 SUB_HANDLERS = {"bash": run_bash, "read_file": run_read, "write_file": run_write,

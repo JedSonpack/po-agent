@@ -198,3 +198,24 @@ def test_sub_handlers_no_load_skill():
 def test_run_tool_dispatch_load_skill_not_found():
     # 注册表空 → not found
     assert run_tool("load_skill", {"name": "nope"}) == "Skill not found: nope"
+
+
+# ── s12 新增：任务工具分发 ──────────────────────────────────
+def test_tool_handlers_has_five_task_tools():
+    for name in ("create_task", "list_tasks", "get_task", "claim_task", "complete_task"):
+        assert name in TOOL_HANDLERS
+
+
+def test_sub_handlers_no_task_tools():
+    for name in ("create_task", "list_tasks", "get_task", "claim_task", "complete_task"):
+        assert name not in SUB_HANDLERS
+
+
+def test_run_tool_dispatch_list_tasks():
+    # list_tasks 空时返固定串（TASKS_DIR 可能非空，只断言分发生效——不抛 Unknown）
+    out = run_tool("list_tasks", {})
+    assert "Unknown" not in out
+
+
+def test_run_tool_dispatch_get_task_not_found():
+    assert run_tool("get_task", {"task_id": "task_0_0000"}) == "Error: Task task_0_0000 not found"

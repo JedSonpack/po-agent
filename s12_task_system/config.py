@@ -49,6 +49,17 @@ def make_tools() -> list[dict]:
         # s08: 压缩对话历史（循环 special-case，不走 run_tool）
         {"name": "compact", "description": "Summarize earlier conversation to free context space.",
          "input_schema": {"type": "object", "properties": {"focus": {"type": "string"}}}},
+        # s12: 任务系统 5 工具
+        {"name": "create_task", "description": "Create a new task with optional blockedBy dependencies.",
+         "input_schema": {"type": "object", "properties": {"subject": {"type": "string"}, "description": {"type": "string"}, "blockedBy": {"type": "array", "items": {"type": "string"}}}, "required": ["subject"]}},
+        {"name": "list_tasks", "description": "List all tasks with status, owner, and dependencies.",
+         "input_schema": {"type": "object", "properties": {}, "required": []}},
+        {"name": "get_task", "description": "Get full details of a specific task by ID.",
+         "input_schema": {"type": "object", "properties": {"task_id": {"type": "string"}}, "required": ["task_id"]}},
+        {"name": "claim_task", "description": "Claim a pending task. Sets owner, changes status to in_progress.",
+         "input_schema": {"type": "object", "properties": {"task_id": {"type": "string"}}, "required": ["task_id"]}},
+        {"name": "complete_task", "description": "Complete an in-progress task. Reports unblocked downstream tasks.",
+         "input_schema": {"type": "object", "properties": {"task_id": {"type": "string"}}, "required": ["task_id"]}},
     ]
 
 
