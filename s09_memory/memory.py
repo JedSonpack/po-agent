@@ -16,8 +16,8 @@ class Memory:
 
     def __init__(self, *, client, model, memory_dir, max_items=5,
                  consolidate_threshold=CONSOLIDATE_THRESHOLD,
-                 select_max_tokens=200, extract_max_tokens=800,
-                 consolidate_max_tokens=3000):
+                 select_max_tokens=2000, extract_max_tokens=4000,
+                 consolidate_max_tokens=4000):
         self.client = client
         self.model = model
         self.memory_dir = Path(memory_dir)
