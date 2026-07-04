@@ -1,4 +1,4 @@
-"""交互式 REPL（s10）：s09 + 运行时段落化组装系统提示。"""
+"""交互式 REPL（s14）：s13 + cron 调度（start_scheduler + agent_lock + run_turn 闭包）。"""
 from pathlib import Path
 try:
     import readline
@@ -17,6 +17,7 @@ from s14_cron_scheduler.todo import TodoNag
 from s14_cron_scheduler.subagent import Subagent
 from s14_cron_scheduler.compact import Compactor
 from s14_cron_scheduler.memory import Memory
+from s14_cron_scheduler.cron import start_scheduler, agent_lock
 
 
 def main() -> None:
@@ -32,18 +33,13 @@ def main() -> None:
     compactor = Compactor(client=cfg["client"], model=cfg["model"])
     memory = Memory(client=cfg["client"], model=cfg["model"], memory_dir=Path.cwd() / ".memory")
     memory.memory_dir.mkdir(parents=True, exist_ok=True)
-    print("s13: Background Tasks — async slow ops")
-    print("Type a question, press Enter. Type q to quit.\n")
     history: list = []
-    while True:
-        try:
-            query = input("\033[36ms13 >> \033[0m")
-        except (EOFError, KeyboardInterrupt):
-            break
-        if query.strip().lower() in ("q", "exit", ""):
-            break
-        trigger_hooks("UserPromptSubmit", query)
-        history.append({"role": "user", "content": query})
+
+    def run_turn(query=None) -> None:
+        """一轮 agent turn（用户输入或 cron 触发）。调用者须持 agent_lock。"""
+        if query is not None:
+            trigger_hooks("UserPromptSubmit", query)
+            history.append({"role": "user", "content": query})
         agent_loop(
             client=cfg["client"], model=cfg["model"], context=cfg["context"],
             tools=cfg["tools"], messages=history, run_tool=run_tool,
@@ -52,4 +48,17 @@ def main() -> None:
         for block in history[-1]["content"]:
             if getattr(block, "type", None) == "text":
                 print(block.text)
+
+    start_scheduler(run_turn)  # 起调度线程 + 队列处理器（agent 空闲时 cron 触发 turn）
+    print("s14: Cron Scheduler — scheduled triggers")
+    print("Type a question, press Enter. Type q to quit.\n")
+    while True:
+        try:
+            query = input("\033[36ms14 >> \033[0m")
+        except (EOFError, KeyboardInterrupt):
+            break
+        if query.strip().lower() in ("q", "exit", ""):
+            break
+        with agent_lock:  # 与 queue_processor 互斥
+            run_turn(query)
         print()
