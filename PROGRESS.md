@@ -13,7 +13,7 @@
 |---|---|---|---|---|
 | s01 | Agent Loop | ✅ | [`s01_agent_loop/`](s01_agent_loop/) | `while` 循环 + bash 工具，模型调工具就继续、不调就停 |
 | s02 | Tool Use | ✅ | [`s02_tool_use/`](s02_tool_use/) | 5 工具（bash/read/write/edit/glob）+ 查表分发，模型可一次调多个 |
-| s03 | Permission | ⬜ | `s03_permission/` | 执行命令前做权限判断（危险命令拦截 / 确认） |
+| s03 | Permission | ✅ | [`s03_permission/`](s03_permission/) | 三道闸门权限管线（硬拒绝/规则/审批）插在工具执行前 |
 | s04 | Hooks | ⬜ | `s04_hooks/` | 钩子挂在循环上，但不写进循环本身 |
 | s05 | TodoWrite | ⬜ | `s05_todo_write/` | 给 agent 一个任务清单，防止跑偏 |
 | s06 | Subagent | ⬜ | `s06_subagent/` | 大任务拆给子 agent，子任务拿干净上下文 |
@@ -46,7 +46,14 @@
 - 规格：[`docs/superpowers/specs/2026-07-04-s02-tool-use-design.md`](docs/superpowers/specs/2026-07-04-s02-tool-use-design.md)
 - 计划：[`docs/superpowers/plans/2026-07-04-s02-tool-use.md`](docs/superpowers/plans/2026-07-04-s02-tool-use.md)
 - 要点：5 工具（bash / read_file / write_file / edit_file / glob）+ `TOOL_HANDLERS` 查表分发 + `safe_path` 路径校验；`agent_loop` 注入 `run_tool(name, input)` 分发器；27/27 测试通过
-- 验收：实时跑通——模型对"列出 .py 文件"自动选 `glob` 工具（而非 bash），返回 12 个文件并总结
+- 验收：实时跑通——模型对“列出 .py 文件”自动选 `glob` 工具（而非 bash），返回 12 个文件并总结
+
+### s03 — Permission ✅
+- 目录：[`s03_permission/`](s03_permission/)（config / tools / permissions / agent / cli / __main__ + tests）
+- 规格：[`docs/superpowers/specs/2026-07-04-s03-permission-design.md`](docs/superpowers/specs/2026-07-04-s03-permission-design.md)
+- 计划：[`docs/superpowers/plans/2026-07-04-s03-permission.md`](docs/superpowers/plans/2026-07-04-s03-permission.md)
+- 要点：三道闸门权限管线（闸1 硬拒绝 / 闸2 规则匹配 / 闸3 用户审批）插在工具执行前；`agent_loop` 注入 `check_permission`；被拒工具返回 `"Permission denied."`；s02 `run_bash` 危险检查移到闸1
+- 验收：34/34 测试通过；实时跑通——写工作区内文件过闸直接执行；删文件触发闸2（⚠ Potentially destructive command + Allow?）
 
 ---
 

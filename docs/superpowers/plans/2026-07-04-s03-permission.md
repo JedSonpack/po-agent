@@ -10,6 +10,22 @@
 
 ---
 
+## 执行状态（2026-07-04 完成）
+
+全部 7 个任务完成，34/34 测试通过，已推送 origin/main。验收：s03 实时跑通（write_file 过闸执行；rm 触发闸2 审批 ⚠）。
+
+| 任务 | commit | 说明 |
+|---|---|---|
+| 1 包骨架 | `6bec31c` | 初始化包 |
+| 2 tools | `762cc83` | run_bash 简化，危险检查移到权限层（18 测试） |
+| 3 permissions | `efb8d7d` | 三道闸门管线（10 测试） |
+| 4 agent | `b735a20` | agent_loop 注入 check_permission（3 测试） |
+| 5 config | `08baebc` | SYSTEM 改为需审批（3 测试） |
+| 6 cli + __main__ | `eacbb71` | REPL 入口 |
+| 7 README + 全测 + push | `e8bb7c0` | 34 passed，推送 |
+
+---
+
 ### 任务 1：包骨架
 - 创建 `s03_permission/__init__.py`（`"""s03_permission — 三道闸门权限管线。"""`）、`s03_permission/tests/__init__.py`（空）
 - 验证：`pytest s03_permission -q` → no tests ran（exit 5）
