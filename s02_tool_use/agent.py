@@ -3,15 +3,15 @@ from typing import Callable, Optional
 
 
 def agent_loop(
-    *,
-    client,
-    model: str,
-    system: str,
-    tools: list,
-    messages: list,
-    run_tool: Callable[[str, dict], str],
-    max_tokens: int = 8000,
-    on_tool_use: Optional[Callable[[str, str], None]] = None,
+        *,
+        client,
+        model: str,
+        system: str,
+        tools: list,
+        messages: list,
+        run_tool: Callable[[str, dict], str],
+        max_tokens: int = 8000,
+        on_tool_use: Optional[Callable[[str, str], None]] = None,
 ) -> None:
     while True:
         response = client.messages.create(
@@ -32,4 +32,7 @@ def agent_loop(
                     "tool_use_id": block.id,
                     "content": output,
                 })
+        # 工具不是 Claude 自己说的话，所以不能放 assistant。Anthropic 也没有通用 tool role；
+        # 工具结果必须作为紧跟 tool_use 后的 user message，以 tool_result block 形式返回，并用 tool_use_id 关联调用。
+        # 这样模型会把它理解为“外部环境/客户端返回的观察结果”，再继续推理生成下一条 assistant 回复
         messages.append({"role": "user", "content": results})
