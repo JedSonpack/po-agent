@@ -14,7 +14,7 @@
 | s01 | Agent Loop | ✅ | [`s01_agent_loop/`](s01_agent_loop/) | `while` 循环 + bash 工具，模型调工具就继续、不调就停 |
 | s02 | Tool Use | ✅ | [`s02_tool_use/`](s02_tool_use/) | 5 工具（bash/read/write/edit/glob）+ 查表分发，模型可一次调多个 |
 | s03 | Permission | ✅ | [`s03_permission/`](s03_permission/) | 三道闸门权限管线（硬拒绝/规则/审批）插在工具执行前 |
-| s04 | Hooks | ⬜ | `s04_hooks/` | 钩子挂在循环上，但不写进循环本身 |
+| s04 | Hooks | ✅ | [`s04_hooks/`](s04_hooks/) | hook 系统：扩展逻辑（权限/日志/收尾）挂循环上，不写进循环 |
 | s05 | TodoWrite | ⬜ | `s05_todo_write/` | 给 agent 一个任务清单，防止跑偏 |
 | s06 | Subagent | ⬜ | `s06_subagent/` | 大任务拆给子 agent，子任务拿干净上下文 |
 | s07 | Skill Loading | ⬜ | `s07_skill_loading/` | 技能按需加载，用到才读 |
@@ -54,6 +54,13 @@
 - 计划：[`docs/superpowers/plans/2026-07-04-s03-permission.md`](docs/superpowers/plans/2026-07-04-s03-permission.md)
 - 要点：三道闸门权限管线（闸1 硬拒绝 / 闸2 规则匹配 / 闸3 用户审批）插在工具执行前；`agent_loop` 注入 `check_permission`；被拒工具返回 `"Permission denied."`；s02 `run_bash` 危险检查移到闸1
 - 验收：34/34 测试通过；实时跑通——写工作区内文件过闸直接执行；删文件触发闸2（⚠ Potentially destructive command + Allow?）
+
+### s04 — Hooks ✅
+- 目录：[`s04_hooks/`](s04_hooks/)（config / tools / hooks / agent / cli / __main__ + tests）
+- 规格：[`docs/superpowers/specs/2026-07-04-s04-hooks-design.md`](docs/superpowers/specs/2026-07-04-s04-hooks-design.md)
+- 计划：[`docs/superpowers/plans/2026-07-04-s04-hooks.md`](docs/superpowers/plans/2026-07-04-s04-hooks.md)
+- 要点：hook 系统（4 事件 UserPromptSubmit/PreToolUse/PostToolUse/Stop + `register_hook`/`trigger_hooks`）；s03 权限逻辑移进 `permission_hook`；`agent_loop` 注入 `trigger`，无 `check_permission`/`on_tool_use`；5 个 hook 回调
+- 验收：37/37 测试通过；实时跑通——`[HOOK]` 日志在 UserPromptSubmit/PreToolUse(log)/Stop(summary) 各触发点出现
 
 ---
 
