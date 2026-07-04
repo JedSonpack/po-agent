@@ -16,7 +16,7 @@
 | s03 | Permission | ✅ | [`s03_permission/`](s03_permission/) | 三道闸门权限管线（硬拒绝/规则/审批）插在工具执行前 |
 | s04 | Hooks | ✅ | [`s04_hooks/`](s04_hooks/) | hook 系统：扩展逻辑（权限/日志/收尾）挂循环上，不写进循环 |
 | s05 | TodoWrite | ✅ | [`s05_todo_write/`](s05_todo_write/) | 给 agent 一个任务清单，防止跑偏 |
-| s06 | Subagent | ⬜ | `s06_subagent/` | 大任务拆给子 agent，子任务拿干净上下文 |
+| s06 | Subagent | ✅ | [`s06_subagent/`](s06_subagent/) | 大任务拆给子 agent，子任务拿干净上下文 |
 | s07 | Skill Loading | ⬜ | `s07_skill_loading/` | 技能按需加载，用到才读 |
 | s08 | Context Compact | ⬜ | `s08_context_compact/` | 上下文满了想办法压缩腾地方 |
 | s09 | Memory | ⬜ | `s09_memory/` | 持久记忆层，存压缩会丢的关键细节 |
@@ -68,6 +68,13 @@
 - 计划：[`docs/superpowers/plans/2026-07-04-s05-todo-write.md`](docs/superpowers/plans/2026-07-04-s05-todo-write.md)
 - 要点：`todo_write` 规划工具（`_normalize_todos` 校验 list/JSON/ast 字符串 + `CURRENT_TODOS` 内存态 + `run_todo_write` 彩色输出）经 `TOOL_HANDLERS` 自动分发；`TodoNag` 机制（连续 3 tool 轮未更新 todo → 注入 `<reminder>`，调 todo_write 归零）注入 `agent_loop`（`nag=None` 默认）；SYSTEM 加 "use todo_write to plan"；hooks 同 s04
 - 验收：54/54 测试通过（全量 163）；实时跑通——模型首工具即 `todo_write` 列 5 步，执行中 status `pending→in_progress→completed`，nag 未触发（按时更新），demo_pkg 测试通过
+
+### s06 — Subagent ✅
+- 目录：[`s06_subagent/`](s06_subagent/)（config / tools / hooks / todo / subagent / agent / cli / __main__ + tests）
+- 规格：[`docs/superpowers/specs/2026-07-04-s06-subagent-design.md`](docs/superpowers/specs/2026-07-04-s06-subagent-design.md)
+- 计划：[`docs/superpowers/plans/2026-07-04-s06-subagent.md`](docs/superpowers/plans/2026-07-04-s06-subagent.md)
+- 要点：`task` 工具 + `Subagent` 类（fresh `messages[]`、`max_turns=30` 安全限、`SUB_TOOLS` 5 工具无 task/todo_write 防递归、跑 PreToolUse/PostToolUse hooks、`extract_text` 只返总结、fallback 倒序找 assistant text）；`run_tool` 缝演进为 `make_run_tool(handlers, extra)` 工厂（让需 client 的 task 处理器接线时绑定）；循环不变（task 经 run_tool 自动分发）
+- 验收：70/70 测试通过（全量 233）；实时跑通——parent 调 `task` 派子 agent 统计 .py 文件，`[Subagent spawned]`→`[sub] bash`→`[Subagent done]`，parent 只收总结（14 个文件）
 
 ---
 
