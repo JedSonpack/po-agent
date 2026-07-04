@@ -22,7 +22,7 @@
 | s09 | Memory | ✅ | [`s09_memory/`](s09_memory/) | 持久记忆层，存压缩会丢的关键细节 |
 | s10 | System Prompt | ✅ | [`s10_system_prompt/`](s10_system_prompt/) | 运行时组装系统提示，不硬编码 |
 | s11 | Error Recovery | ✅ | [`s11_error_recovery/`](s11_error_recovery/) | 错误重试与恢复策略 |
-| s12 | Task System | ⬜ | `s12_task_system/` | 大目标拆成可追踪的小任务 |
+| s12 | Task System | ✅ | [`s12_task_system/`](s12_task_system/) | 大目标拆成可追踪的小任务 |
 | s13 | Background Tasks | ⬜ | `s13_background_tasks/` | 慢操作放后台执行 |
 | s14 | Cron Scheduler | ⬜ | `s14_cron_scheduler/` | 按时间表触发任务 |
 | s15 | Agent Teams | ⬜ | `s15_agent_teams/` | 多 agent 组队协作 |
@@ -111,6 +111,13 @@
 - 计划：[`docs/superpowers/plans/2026-07-04-s11-error-recovery.md`](docs/superpowers/plans/2026-07-04-s11-error-recovery.md)
 - 要点：LLM 调用韧性外壳（`recovery.py`）——`RecoveryState` 跨迭代跟踪；`with_retry(fn, state)` 429/529 指数退避重试（最多 10 次），529 连续 3 次切 `FALLBACK_MODEL`；`retry_delay`（min(500×2^a,32000)/1000 + 抖动）；`is_prompt_too_long_error`；`agent_loop` LLM 调用包 `with_retry`，`stop_reason=="max_tokens"` → 升级 8K→64K（1 次不 append）→ 续写（3 次），outer except prompt_too_long→reactive_compact（1 次，复用 s08），不可恢复→追加 `[Error]` 优雅返回（s08 raise 改为优雅返回）；保留 s10 全部；无新工具
 - 验收：161/161 测试通过（全量 881）；实时跑通——正常路径行为同 s10，recovery 路径异常时自动生效
+
+### s12 — Task System ✅
+- 目录：[`s12_task_system/`](s12_task_system/)（tasks / recovery / config / tools / skills / hooks / todo / subagent / compact / memory / system_prompt / agent / cli / __main__ + tests）
+- 规格：[`docs/superpowers/specs/2026-07-04-s12-task-system-design.md`](docs/superpowers/specs/2026-07-04-s12-task-system-design.md)
+- 计划：[`docs/superpowers/plans/2026-07-04-s12-task-system.md`](docs/superpowers/plans/2026-07-04-s12-task-system.md)
+- 要点：文件持久化任务图（`tasks.py`）——`Task` dataclass（id/subject/description/status/owner/blockedBy）+ `.tasks/{id}.json`；`can_start`（blockedBy 全 completed，缺失=blocked 不抛，不递归）；`claim_task`（pending+can_start→in_progress+owner）/`complete_task`（→completed，扫描报 `Unblocked` 下游）；5 工具 handler 进 `TOOL_HANDLERS`+`make_tools()`（14）；`agent_loop` 不改（任务工具经 run_tool 自动分发）；保留 s11 全部
+- 验收：192/192 测试通过（全量 1073）；实时跑通——agent 调 create_task/list_tasks/claim_task/complete_task，`.tasks/` 落 JSON，依赖图解锁下游
 
 ---
 
