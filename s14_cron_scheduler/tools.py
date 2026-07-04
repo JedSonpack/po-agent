@@ -8,6 +8,7 @@ from typing import Callable
 from s14_cron_scheduler.skills import load_skill
 from s14_cron_scheduler.tasks import (run_create_task, run_list_tasks, run_get_task,
                                    run_claim_task, run_complete_task)
+from s14_cron_scheduler.cron import run_schedule_cron, run_list_crons, run_cancel_cron
 
 WORKDIR = Path.cwd()
 TIMEOUT = 120
@@ -120,7 +121,10 @@ TOOL_HANDLERS = {"bash": run_bash, "read_file": run_read, "write_file": run_writ
                  # s12: 任务系统 5 工具
                  "create_task": run_create_task, "list_tasks": run_list_tasks,
                  "get_task": run_get_task, "claim_task": run_claim_task,
-                 "complete_task": run_complete_task}
+                 "complete_task": run_complete_task,
+                 # s14: cron 调度 3 工具
+                 "schedule_cron": run_schedule_cron, "list_crons": run_list_crons,
+                 "cancel_cron": run_cancel_cron}
 
 # s06: 子 agent 用 5 工具（无 todo_write 无 task 无 load_skill，防递归）
 SUB_HANDLERS = {"bash": run_bash, "read_file": run_read, "write_file": run_write,

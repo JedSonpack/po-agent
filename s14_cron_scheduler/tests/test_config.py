@@ -4,11 +4,12 @@ from s14_cron_scheduler.config import (build_context, build_sub_system_prompt,
                                       make_tools, make_sub_tools, prepare_env)
 
 
-def test_make_tools_has_fourteen_with_tasks():
+def test_make_tools_has_seventeen_with_cron():
     names = [t["name"] for t in make_tools()]
     assert names == ["bash", "read_file", "write_file", "edit_file", "glob",
                      "todo_write", "task", "load_skill", "compact",
-                     "create_task", "list_tasks", "get_task", "claim_task", "complete_task"]
+                     "create_task", "list_tasks", "get_task", "claim_task", "complete_task",
+                     "schedule_cron", "list_crons", "cancel_cron"]
 
 
 def test_make_sub_tools_has_five():

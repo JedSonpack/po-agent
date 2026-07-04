@@ -226,3 +226,14 @@ def test_run_bash_ignores_run_in_background():
     # 参数接收但不影响同步执行
     out = run_bash("echo hi", run_in_background=True)
     assert "hi" in out
+
+
+# ── s14 新增：cron 工具分发 ─────────────────────────────────
+def test_tool_handlers_has_three_cron_tools():
+    for name in ("schedule_cron", "list_crons", "cancel_cron"):
+        assert name in TOOL_HANDLERS
+
+
+def test_run_tool_dispatch_list_crons():
+    out = run_tool("list_crons", {})
+    assert "Unknown" not in out  # 分发生效

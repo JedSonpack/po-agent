@@ -60,6 +60,13 @@ def make_tools() -> list[dict]:
          "input_schema": {"type": "object", "properties": {"task_id": {"type": "string"}}, "required": ["task_id"]}},
         {"name": "complete_task", "description": "Complete an in-progress task. Reports unblocked downstream tasks.",
          "input_schema": {"type": "object", "properties": {"task_id": {"type": "string"}}, "required": ["task_id"]}},
+        # s14: cron 调度 3 工具
+        {"name": "schedule_cron", "description": "Schedule a cron job. cron is 5-field: min hour dom month dow.",
+         "input_schema": {"type": "object", "properties": {"cron": {"type": "string"}, "prompt": {"type": "string"}, "recurring": {"type": "boolean"}, "durable": {"type": "boolean"}}, "required": ["cron", "prompt"]}},
+        {"name": "list_crons", "description": "List all registered cron jobs.",
+         "input_schema": {"type": "object", "properties": {}, "required": []}},
+        {"name": "cancel_cron", "description": "Cancel a cron job by ID.",
+         "input_schema": {"type": "object", "properties": {"job_id": {"type": "string"}}, "required": ["job_id"]}},
     ]
 
 
