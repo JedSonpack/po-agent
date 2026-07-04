@@ -36,10 +36,17 @@ class FakeClient:
 
 
 @pytest.fixture(autouse=True)
-def _reset_cache():
+def _reset():
+    from s13_background_tasks import background
     reset_cache()
+    background._bg_counter = 0
+    background.background_tasks.clear()
+    background.background_results.clear()
     yield
     reset_cache()
+    background._bg_counter = 0
+    background.background_tasks.clear()
+    background.background_results.clear()
 
 
 def test_allowed_tool_runs():
@@ -420,3 +427,53 @@ def test_with_retry_429_in_loop(monkeypatch):
     agent_loop(client=Flaky(), model="m", context=ctx(), tools=[], messages=msgs,
                run_tool=lambda n, i: "OUT", trigger=lambda ev, *a: None)
     assert "done" in str(msgs[-1]["content"])
+
+
+# ── s13 新增：后台任务 ─────────────────────────────────────
+def test_background_bash_returns_placeholder():
+    import threading
+    release = threading.Event()
+
+    def slow_run(n, i):
+        release.wait(2)  # 阻塞，保持 running，不产生通知
+        return "OUT"
+
+    client = FakeClient([
+        make_response([tool_use_block("t1", "bash", {"command": "echo hi", "run_in_background": True})], "tool_use"),
+        make_response([text_block("done")], "end_turn"),
+    ])
+    msgs = [{"role": "user", "content": "x"}]
+    agent_loop(client=client, model="m", context=ctx(), tools=[], messages=msgs,
+               run_tool=slow_run, trigger=lambda ev, *a: None)
+    assert "Background task bg_0001" in msgs[2]["content"][0]["content"]
+    release.set()
+
+
+def test_background_notification_injected_after_results():
+    from s13_background_tasks import background
+    with background.background_lock:
+        background.background_tasks["bg_0001"] = {"tool_use_id": "old", "command": "echo done", "status": "completed"}
+        background.background_results["bg_0001"] = "DONE"
+    client = FakeClient([
+        make_response([tool_use_block("t1", "read_file", {"path": "a"})], "tool_use"),
+        make_response([text_block("ok")], "end_turn"),
+    ])
+    msgs = [{"role": "user", "content": "x"}]
+    agent_loop(client=client, model="m", context=ctx(), tools=[], messages=msgs,
+               run_tool=lambda n, i: "OUT", trigger=lambda ev, *a: None)
+    user_msg = msgs[2]["content"]
+    assert user_msg[0]["type"] == "tool_result"  # results 在前
+    assert any(b.get("type") == "text" and "<task_notification>" in b.get("text", "") for b in user_msg)  # 通知在后
+
+
+def test_no_collect_when_stop_without_tool_use():
+    from s13_background_tasks import background
+    with background.background_lock:
+        background.background_tasks["bg_0001"] = {"tool_use_id": "old", "command": "c", "status": "completed"}
+        background.background_results["bg_0001"] = "DONE"
+    client = FakeClient([make_response([text_block("done")], "end_turn")])
+    msgs = [{"role": "user", "content": "x"}]
+    agent_loop(client=client, model="m", context=ctx(), tools=[], messages=msgs,
+               run_tool=lambda n, i: "OUT", trigger=lambda ev, *a: None)
+    assert len(msgs) == 2  # user + assistant，无通知注入
+    assert "bg_0001" in background.background_tasks  # 未收集

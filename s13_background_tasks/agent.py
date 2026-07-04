@@ -1,10 +1,12 @@
-"""核心 agent 循环（s11）：s10 + error recovery（with_retry 429/529 + max_tokens 升级/续写 + 优雅返回）。"""
+"""核心 agent 循环（s13）：s12 + 后台任务（慢操作 daemon 派发 + <task_notification> 注入）。"""
 from typing import Callable
 
 from s13_background_tasks.system_prompt import build_context, get_system_prompt
 from s13_background_tasks.recovery import (RecoveryState, with_retry, is_prompt_too_long_error,
-                                         DEFAULT_MAX_TOKENS, ESCALATED_MAX_TOKENS,
-                                         MAX_RECOVERY_RETRIES, CONTINUATION_PROMPT)
+                                           DEFAULT_MAX_TOKENS, ESCALATED_MAX_TOKENS,
+                                           MAX_RECOVERY_RETRIES, CONTINUATION_PROMPT)
+from s13_background_tasks.background import (should_run_background, start_background_task,
+                                             collect_background_results)
 
 
 def _stringify(content) -> str:
@@ -112,9 +114,23 @@ def agent_loop(*, client, model, context, tools, messages, run_tool,
                 results.append({"type": "tool_result", "tool_use_id": block.id,
                                 "content": str(blocked)})
                 continue
+            # s13: 慢操作后台派发（PreToolUse 后、同步执行前）
+            if should_run_background(block.name, block.input):
+                bg_id = start_background_task(block, run_tool)
+                results.append({"type": "tool_result", "tool_use_id": block.id,
+                                "content": f"[Background task {bg_id} started] "
+                                           f"Command: {block.input.get('command', '')}. "
+                                           f"Result will be available when complete."})
+                continue
             output = run_tool(block.name, block.input)
             trigger("PostToolUse", block, output)
             if nag and block.name == "todo_write":    # s05: todo_write 归零
                 nag.on_todo_write()
             results.append({"type": "tool_result", "tool_use_id": block.id, "content": output})
-        messages.append({"role": "user", "content": results})
+        # s13: 收集后台通知，作 text block 追加（results 在前、通知在后）
+        user_content = list(results)
+        notifications = collect_background_results()
+        if notifications:
+            for notif in notifications:
+                user_content.append({"type": "text", "text": notif})
+        messages.append({"role": "user", "content": user_content})
