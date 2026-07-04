@@ -10,9 +10,18 @@
 
 ---
 
-## 执行状态
+## 执行状态（2026-07-04 完成）
 
-（完成后填写）
+全部 7 个任务完成，s08 116/116 测试通过（全量 s01-s08 435 passed），已推送 origin/main。验收：s08 实时跑通——agent 调 `compact` 工具触发 `[transcript saved: ...]`，messages 被总结替换，报告保留/丢弃内容。
+
+| 任务 | commit | 说明 |
+|---|---|---|
+| 1+2 骨架+compact | `b91c3f7` | compact.py 纯函数 + Compactor（25 测试） |
+| 3 s07 复制 | `71ea1e9` | tools/skills/hooks/todo/subagent（74 测试） |
+| 4 agent | `2841bdb` | 压缩管线 + compact 工具 + reactive（12 测试） |
+| 5 config | `19f37b6` | 9 工具含 compact（5 测试） |
+| 6 cli | `97f005c` | REPL 接线 Compactor |
+| 7 README + 全测 + 冒烟 + push | 后续 docs | 435 passed，冒烟通过，推送 |
 
 ---
 

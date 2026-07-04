@@ -18,7 +18,7 @@
 | s05 | TodoWrite | ✅ | [`s05_todo_write/`](s05_todo_write/) | 给 agent 一个任务清单，防止跑偏 |
 | s06 | Subagent | ✅ | [`s06_subagent/`](s06_subagent/) | 大任务拆给子 agent，子任务拿干净上下文 |
 | s07 | Skill Loading | ✅ | [`s07_skill_loading/`](s07_skill_loading/) | 技能按需加载，用到才读 |
-| s08 | Context Compact | ⬜ | `s08_context_compact/` | 上下文满了想办法压缩腾地方 |
+| s08 | Context Compact | ✅ | [`s08_context_compact/`](s08_context_compact/) | 上下文满了想办法压缩腾地方 |
 | s09 | Memory | ⬜ | `s09_memory/` | 持久记忆层，存压缩会丢的关键细节 |
 | s10 | System Prompt | ⬜ | `s10_system_prompt/` | 运行时组装系统提示，不硬编码 |
 | s11 | Error Recovery | ⬜ | `s11_error_recovery/` | 错误重试与恢复策略 |
@@ -82,6 +82,13 @@
 - 计划：[`docs/superpowers/plans/2026-07-04-s07-skill-loading.md`](docs/superpowers/plans/2026-07-04-s07-skill-loading.md)
 - 要点：两级按需知识注入——`skills.py` 扫 `skills/` 建 `SKILL_REGISTRY`（`_parse_frontmatter` 解 YAML）；Layer 1 `build_system_prompt` 注目录（name+描述，常驻）；Layer 2 `load_skill` 工具按需返全文（注册表查找，防路径穿越）；`load_skill` 静态处理器（无需 client）直接进 `TOOL_HANDLERS`；子 agent 不给 load_skill；循环不变
 - 验收：86/86 测试通过（全量 319）；实时跑通——SYSTEM 列技能目录，agent 调 `load_skill("code-review")` 拿全文并总结 review 步骤
+
+### s08 — Context Compact ✅
+- 目录：[`s08_context_compact/`](s08_context_compact/)（config / tools / compact / skills / hooks / todo / subagent / agent / cli / __main__ + tests）
+- 规格：[`docs/superpowers/specs/2026-07-04-s08-context-compact-design.md`](docs/superpowers/specs/2026-07-04-s08-context-compact-design.md)
+- 计划：[`docs/superpowers/plans/2026-07-04-s08-context-compact.md`](docs/superpowers/plans/2026-07-04-s08-context-compact.md)
+- 要点：四层压缩管线（`compact.py` 纯函数 snip/micro + `Compactor` 类）——L1 snip(>50 砍中间不拆对)/L2 micro(旧 tool_result 占位)/L3 budget(大结果落盘 `<persisted-output>`)/L4 compact_history(超 50000 → LLM 总结)；`compact` 工具（special-case 不走 run_tool）；reactive_compact（prompt_too_long 重试 1 次）；`Compactor` 注入 `agent_loop`；保留 s07 hooks/nag
+- 验收：116/116 测试通过（全量 435）；实时跑通——agent 调 `compact` 工具触发 `[transcript saved: ...]`，messages 被总结替换，报告保留/丢弃内容
 
 ---
 
