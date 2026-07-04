@@ -17,7 +17,7 @@
 | s04 | Hooks | ✅ | [`s04_hooks/`](s04_hooks/) | hook 系统：扩展逻辑（权限/日志/收尾）挂循环上，不写进循环 |
 | s05 | TodoWrite | ✅ | [`s05_todo_write/`](s05_todo_write/) | 给 agent 一个任务清单，防止跑偏 |
 | s06 | Subagent | ✅ | [`s06_subagent/`](s06_subagent/) | 大任务拆给子 agent，子任务拿干净上下文 |
-| s07 | Skill Loading | ⬜ | `s07_skill_loading/` | 技能按需加载，用到才读 |
+| s07 | Skill Loading | ✅ | [`s07_skill_loading/`](s07_skill_loading/) | 技能按需加载，用到才读 |
 | s08 | Context Compact | ⬜ | `s08_context_compact/` | 上下文满了想办法压缩腾地方 |
 | s09 | Memory | ⬜ | `s09_memory/` | 持久记忆层，存压缩会丢的关键细节 |
 | s10 | System Prompt | ⬜ | `s10_system_prompt/` | 运行时组装系统提示，不硬编码 |
@@ -75,6 +75,13 @@
 - 计划：[`docs/superpowers/plans/2026-07-04-s06-subagent.md`](docs/superpowers/plans/2026-07-04-s06-subagent.md)
 - 要点：`task` 工具 + `Subagent` 类（fresh `messages[]`、`max_turns=30` 安全限、`SUB_TOOLS` 5 工具无 task/todo_write 防递归、跑 PreToolUse/PostToolUse hooks、`extract_text` 只返总结、fallback 倒序找 assistant text）；`run_tool` 缝演进为 `make_run_tool(handlers, extra)` 工厂（让需 client 的 task 处理器接线时绑定）；循环不变（task 经 run_tool 自动分发）
 - 验收：70/70 测试通过（全量 233）；实时跑通——parent 调 `task` 派子 agent 统计 .py 文件，`[Subagent spawned]`→`[sub] bash`→`[Subagent done]`，parent 只收总结（14 个文件）
+
+### s07 — Skill Loading ✅
+- 目录：[`s07_skill_loading/`](s07_skill_loading/)（config / tools / skills / hooks / todo / subagent / agent / cli / __main__ + tests + `skills/` 样本）
+- 规格：[`docs/superpowers/specs/2026-07-04-s07-skill-loading-design.md`](docs/superpowers/specs/2026-07-04-s07-skill-loading-design.md)
+- 计划：[`docs/superpowers/plans/2026-07-04-s07-skill-loading.md`](docs/superpowers/plans/2026-07-04-s07-skill-loading.md)
+- 要点：两级按需知识注入——`skills.py` 扫 `skills/` 建 `SKILL_REGISTRY`（`_parse_frontmatter` 解 YAML）；Layer 1 `build_system_prompt` 注目录（name+描述，常驻）；Layer 2 `load_skill` 工具按需返全文（注册表查找，防路径穿越）；`load_skill` 静态处理器（无需 client）直接进 `TOOL_HANDLERS`；子 agent 不给 load_skill；循环不变
+- 验收：86/86 测试通过（全量 319）；实时跑通——SYSTEM 列技能目录，agent 调 `load_skill("code-review")` 拿全文并总结 review 步骤
 
 ---
 

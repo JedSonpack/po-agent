@@ -10,9 +10,17 @@
 
 ---
 
-## 执行状态
+## 执行状态（2026-07-04 完成）
 
-（完成后填写）
+全部 6 个任务完成，s07 86/86 测试通过（全量 s01-s07 319 passed），已推送 origin/main。验收：s07 实时跑通——SYSTEM 列技能目录，agent 调 `load_skill("code-review")` 拿全文并总结 review 步骤。
+
+| 任务 | commit | 说明 |
+|---|---|---|
+| 1+2 骨架+skills+tools | `9a8b5df` | skills.py + tools.py（含骨架）（48 测试：13 skills + 35 tools） |
+| 3 hooks/todo/agent/subagent | `6fc10d9` | s06 原样复制（33 测试） |
+| 4 config | `f0de86e` | 8 工具 + 目录提示（5 测试） |
+| 5 cli + 样本 skills | `21e66d4` | REPL + skills/code-review、skills/mcp-builder |
+| 6 README + 全测 + 冒烟 + push | 后续 docs | 319 passed，冒烟通过，推送 |
 
 ---
 
