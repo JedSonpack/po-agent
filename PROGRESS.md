@@ -19,7 +19,7 @@
 | s06 | Subagent | ✅ | [`s06_subagent/`](s06_subagent/) | 大任务拆给子 agent，子任务拿干净上下文 |
 | s07 | Skill Loading | ✅ | [`s07_skill_loading/`](s07_skill_loading/) | 技能按需加载，用到才读 |
 | s08 | Context Compact | ✅ | [`s08_context_compact/`](s08_context_compact/) | 上下文满了想办法压缩腾地方 |
-| s09 | Memory | ⬜ | `s09_memory/` | 持久记忆层，存压缩会丢的关键细节 |
+| s09 | Memory | ✅ | [`s09_memory/`](s09_memory/) | 持久记忆层，存压缩会丢的关键细节 |
 | s10 | System Prompt | ⬜ | `s10_system_prompt/` | 运行时组装系统提示，不硬编码 |
 | s11 | Error Recovery | ⬜ | `s11_error_recovery/` | 错误重试与恢复策略 |
 | s12 | Task System | ⬜ | `s12_task_system/` | 大目标拆成可追踪的小任务 |
@@ -89,6 +89,14 @@
 - 计划：[`docs/superpowers/plans/2026-07-04-s08-context-compact.md`](docs/superpowers/plans/2026-07-04-s08-context-compact.md)
 - 要点：四层压缩管线（`compact.py` 纯函数 snip/micro + `Compactor` 类）——L1 snip(>50 砍中间不拆对)/L2 micro(旧 tool_result 占位)/L3 budget(大结果落盘 `<persisted-output>`)/L4 compact_history(超 50000 → LLM 总结)；`compact` 工具（special-case 不走 run_tool）；reactive_compact（prompt_too_long 重试 1 次）；`Compactor` 注入 `agent_loop`；保留 s07 hooks/nag
 - 验收：116/116 测试通过（全量 435）；实时跑通——agent 调 `compact` 工具触发 `[transcript saved: ...]`，messages 被总结替换，报告保留/丢弃内容
+
+### s09 — Memory ✅
+- 目录：[`s09_memory/`](s09_memory/)（config / tools / skills / hooks / todo / subagent / compact / memory / agent / cli / __main__ + tests）
+- 规格：[`docs/superpowers/specs/2026-07-04-s09-memory-design.md`](docs/superpowers/specs/2026-07-04-s09-memory-design.md)
+- 计划：[`docs/superpowers/plans/2026-07-04-s09-memory.md`](docs/superpowers/plans/2026-07-04-s09-memory.md)
+- 要点：持久跨会话记忆（`memory.py` `Memory` 类）——`.memory/` 存记忆文件（YAML frontmatter + body）+ `MEMORY.md` 索引；SYSTEM 注索引（`build_index_section`）；`load_memories` 按需注入相关记忆到 user 轮（LLM 选+关键词回退）；turn 结束 `extract_memories`（LLM 抽 `{name,type,description,body}`）+ `consolidate_memories`（≥10 合并）；`pre_compress` stringify 快照保真；`Memory` 注入 `agent_loop`；保留 s08 全部机制；无新工具
+- 关键发现：glm-5.2 是推理模型，memory 的 LLM 调用（select/extract/consolidate）需大 `max_tokens`（2000/4000/4000）——参考的 200/800 会被 thinking 吃光、无 text 输出
+- 验收：137/137 测试通过（全量 572）；实时跑通——`[Memory: extracted 3 new memories]`，`.memory/` 落 3 记忆文件 + MEMORY.md 索引
 
 ---
 
