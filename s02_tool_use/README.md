@@ -25,6 +25,20 @@ source ../.venv/bin/activate
 python -m s02_tool_use
 ```
 
+## 使用示例
+
+```
+s02 >> 列出工作区里的 Python 文件
+```
+
+模型这次选 `glob` 工具（pattern `*.py`）而不是用 bash 拼 `find`——查表分发让模型挑最合适的工具，返回文件列表后总结。再试：
+
+```
+s02 >> 建一个 hi.txt 写 "hello"，然后读出来
+```
+
+模型依次调 `write_file` → `read_file`，观察 5 个工具（bash/read_file/write_file/edit_file/glob）各自怎么用。文件工具路径被 `safe_path` 锁在工作区内。
+
 ## 测试
 ```sh
 pytest s02_tool_use/tests -v

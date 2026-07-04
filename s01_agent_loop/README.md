@@ -20,6 +20,16 @@ source .venv/bin/activate
 python -m s01_agent_loop
 ```
 
+## 使用示例
+
+启动后问一个需要跑命令的问题：
+
+```
+s01 >> 当前目录下有多少个 .py 文件？
+```
+
+模型调 `bash` 工具跑 `find . -name '*.py' | wc -l`，结果喂回，再总结回答（如 "12 个"）。这演示核心循环：模型调工具（`stop_reason == "tool_use"`）→ 执行 → 喂回 → 继续；不调工具就退出。本阶段只有 `bash` 一个工具，复杂操作靠 shell 拼。
+
 ## 测试
 从 po-agent 根目录：
 

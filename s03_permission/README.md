@@ -26,6 +26,25 @@ source ../.venv/bin/activate
 python -m s03_permission
 ```
 
+## 使用示例
+
+写工作区内文件——过闸直接执行（不审批）：
+
+```
+s03 >> 在工作区建 hello.txt 写 "hi"
+```
+
+删文件——触发审批：
+
+```
+s03 >> 删掉 hello.txt
+⚠  Potentially destructive command
+   Tool: bash({'command': 'rm hello.txt'})
+   Allow? [y/N]
+```
+
+`rm ` 命中闸 2（破坏性）→ 闸 3 询问；输 `y` 执行、`n` 返回 `Permission denied.`。试 `rm -rf /` 会被闸 1（`DENY_LIST`）硬拒，不询问。
+
 ## 测试
 ```sh
 pytest s03_permission/tests -v

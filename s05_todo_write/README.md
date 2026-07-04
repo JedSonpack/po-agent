@@ -26,6 +26,27 @@ source ../.venv/bin/activate
 python -m s05_todo_write
 ```
 
+## 使用示例
+
+给一个多步任务：
+
+```
+s05 >> 在 s05_todo_write/example 下建 demo_pkg：__init__.py（含版本号）+ utils.py（add 函数）+ tests/test_utils.py（测 add）
+```
+
+模型第一工具就调 `todo_write` 列出步骤（全 `pending`）：
+
+```
+## Current Tasks
+  [ ] 创建包目录
+  [ ] 创建 __init__.py
+  [ ] 创建 utils.py
+  [ ] 创建 tests/test_utils.py
+  [ ] 运行测试验证
+```
+
+执行中状态变化 `pending → in_progress → completed`（图标 ` `/`▸`/`✓`），做完一步就更新 todo。连续 3 个 tool 轮没调 `todo_write`，循环顶部注入 `<reminder>Update your todos.</reminder>` 提醒。
+
 ## 测试
 ```sh
 pytest s05_todo_write/tests -v

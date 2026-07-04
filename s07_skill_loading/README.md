@@ -26,6 +26,20 @@ source ../.venv/bin/activate
 python -m s07_skill_loading
 ```
 
+## 使用示例
+
+SYSTEM 已列出技能目录（`Skills available:`）。让 agent 加载一个技能：
+
+```
+s07 >> 有哪些 skill？加载 code-review 并总结它建议的 review 步骤
+```
+
+```
+[HOOK] load_skill(['code-review'])
+```
+
+`load_skill` 返回 `skills/code-review/SKILL.md` 全文（经 tool_result），agent 据此总结 review 步骤（完整阅读 → 查正确性 → 查风格 → 报告）。技能全文不常驻 SYSTEM，用到才加载——省上下文。
+
 ## 测试
 ```sh
 pytest s07_skill_loading/tests -v

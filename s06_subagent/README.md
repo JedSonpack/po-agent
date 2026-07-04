@@ -27,6 +27,25 @@ source ../.venv/bin/activate
 python -m s06_subagent
 ```
 
+## 使用示例
+
+让 parent 派子 agent 做只读子任务：
+
+```
+s06 >> 用 task 工具派一个子 agent 去统计 s05_todo_write/ 下有多少个 .py 文件，把总结告诉我
+```
+
+观察：
+
+```
+[HOOK] task(['统计 ... .py 文件'])
+[Subagent spawned]
+  [sub] bash: ...14 个 .py 文件...
+[Subagent done]
+```
+
+parent 只收到子 agent 的总结（"14 个 .py 文件"），子 agent 的中间过程被丢弃——大任务拆给子 agent，子 agent 拿全新 `messages[]`（干净上下文），不污染 parent。
+
 ## 测试
 ```sh
 pytest s06_subagent/tests -v

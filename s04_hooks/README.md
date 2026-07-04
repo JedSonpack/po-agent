@@ -26,6 +26,22 @@ source ../.venv/bin/activate
 python -m s04_hooks
 ```
 
+## 使用示例
+
+```
+s04 >> 读一下 a.txt
+```
+
+观察终端各触发点的 `[HOOK]` 日志：
+
+```
+[HOOK] UserPromptSubmit: working in /Users/.../po-agent   ← context_inject_hook
+[HOOK] read_file(['a.txt'])                               ← log_hook（PreToolUse）
+[HOOK] Stop: session used 1 tool calls                    ← summary_hook（Stop）
+```
+
+权限/日志/收尾逻辑全在 hook 回调里——循环本身只调 `trigger_hooks()`，不写死这些逻辑。PostToolUse 的 `large_output_hook` 在工具输出 >100KB 时才打印警告。
+
 ## 测试
 ```sh
 pytest s04_hooks/tests -v

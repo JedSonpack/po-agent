@@ -27,6 +27,29 @@ source ../.venv/bin/activate
 python -m s09_memory
 ```
 
+## 使用示例
+
+告诉 agent 一个偏好：
+
+```
+s09 >> 记住：我喜欢深色主题，回答尽量简短
+```
+
+agent 口头确认后，turn 结束自动提取记忆：
+
+```
+[Memory: extracted 2 new memories]
+```
+
+`.memory/` 落记忆文件 + `MEMORY.md` 索引：
+
+```
+- [user-preference-dark-theme](user-preference-dark-theme.md) — User prefers dark theme
+- [user-preference-concise-answers](user-preference-concise-answers.md) — User prefers short responses
+```
+
+下次启动时 SYSTEM 注入这个索引，相关记忆按需注入 user 轮——跨会话持久，压缩会丢的偏好这里保留。
+
 ## 测试
 ```sh
 pytest s09_memory/tests -v

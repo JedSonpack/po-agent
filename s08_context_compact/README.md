@@ -30,6 +30,21 @@ source ../.venv/bin/activate
 python -m s08_context_compact
 ```
 
+## 使用示例
+
+让 agent 读完一个文件再压缩历史：
+
+```
+s08 >> 先用 read_file 读 s07_skill_loading/README.md，然后调用 compact 工具压缩对话历史，告诉我压缩后还剩什么
+```
+
+```
+[HOOK] read_file(['s07_skill_loading/README.md'])
+[transcript saved: .transcripts/transcript_*.jsonl]
+```
+
+`compact` 工具触发 `compact_history`——落 transcript + LLM 总结，messages 替换成 `[Compacted]\n\n{summary}`。agent 报告保留（目标/架构/决策）与丢弃（原文逐字/中间细节）。长对话不爆，关键信息落盘/总结保留。
+
 ## 测试
 ```sh
 pytest s08_context_compact/tests -v
