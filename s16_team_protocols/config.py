@@ -72,8 +72,15 @@ def make_tools() -> list[dict]:
          "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "role": {"type": "string"}, "prompt": {"type": "string"}}, "required": ["name", "role", "prompt"]}},
         {"name": "send_message", "description": "Send a message to a teammate via MessageBus.",
          "input_schema": {"type": "object", "properties": {"to": {"type": "string"}, "content": {"type": "string"}}, "required": ["to", "content"]}},
-        {"name": "check_inbox", "description": "Check Lead's inbox for teammate messages.",
+        {"name": "check_inbox", "description": "Check Lead's inbox. Routes protocol responses automatically.",
          "input_schema": {"type": "object", "properties": {}, "required": []}},
+        # s16: 协议 3 工具（request_shutdown/request_plan/review_plan）
+        {"name": "request_shutdown", "description": "Request a teammate to shut down gracefully.",
+         "input_schema": {"type": "object", "properties": {"teammate": {"type": "string"}}, "required": ["teammate"]}},
+        {"name": "request_plan", "description": "Ask a teammate to submit a plan for review.",
+         "input_schema": {"type": "object", "properties": {"teammate": {"type": "string"}, "task": {"type": "string"}}, "required": ["teammate", "task"]}},
+        {"name": "review_plan", "description": "Approve or reject a submitted plan by request_id.",
+         "input_schema": {"type": "object", "properties": {"request_id": {"type": "string"}, "approve": {"type": "boolean"}, "feedback": {"type": "string"}}, "required": ["request_id", "approve"]}},
     ]
 
 
@@ -94,8 +101,8 @@ def make_sub_tools() -> list[dict]:
 
 
 def make_team_tools() -> list[dict]:
-    # 队友 4 工具（无 edit/glob/todo/task/spawn_teammate——聚焦通信，防递归组队）
-    # bash 无 run_in_background（队友不派后台）
+    # 队友 5 工具（无 edit/glob/todo/task/spawn_teammate——聚焦通信，防递归组队）
+    # bash 无 run_in_background（队友不派后台）；s16 加 submit_plan
     return [
         {"name": "bash", "description": "Run a shell command.",
          "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
@@ -105,6 +112,8 @@ def make_team_tools() -> list[dict]:
          "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
         {"name": "send_message", "description": "Send a message to another agent.",
          "input_schema": {"type": "object", "properties": {"to": {"type": "string"}, "content": {"type": "string"}}, "required": ["to", "content"]}},
+        {"name": "submit_plan", "description": "Submit a plan for Lead approval.",
+         "input_schema": {"type": "object", "properties": {"plan": {"type": "string"}}, "required": ["plan"]}},
     ]
 
 

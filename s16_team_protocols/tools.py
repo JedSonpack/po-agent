@@ -9,7 +9,8 @@ from s16_team_protocols.skills import load_skill
 from s16_team_protocols.tasks import (run_create_task, run_list_tasks, run_get_task,
                                    run_claim_task, run_complete_task)
 from s16_team_protocols.cron import run_schedule_cron, run_list_crons, run_cancel_cron
-from s16_team_protocols.teams import run_send_message, run_check_inbox
+from s16_team_protocols.teams import (run_send_message, run_check_inbox,
+                                   run_request_shutdown, run_request_plan, run_review_plan)
 
 WORKDIR = Path.cwd()
 TIMEOUT = 120
@@ -127,7 +128,10 @@ TOOL_HANDLERS = {"bash": run_bash, "read_file": run_read, "write_file": run_writ
                  "schedule_cron": run_schedule_cron, "list_crons": run_list_crons,
                  "cancel_cron": run_cancel_cron,
                  # s15: 团队 lead handler（spawn_teammate 需 Team 实例，cli 经 extra 接线）
-                 "send_message": run_send_message, "check_inbox": run_check_inbox}
+                 "send_message": run_send_message, "check_inbox": run_check_inbox,
+                 # s16: 协议 3 工具（request_shutdown/request_plan/review_plan）
+                 "request_shutdown": run_request_shutdown, "request_plan": run_request_plan,
+                 "review_plan": run_review_plan}
 
 # s06: 子 agent 用 5 工具（无 todo_write 无 task 无 load_skill，防递归）
 SUB_HANDLERS = {"bash": run_bash, "read_file": run_read, "write_file": run_write,

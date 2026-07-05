@@ -4,22 +4,23 @@ from s16_team_protocols.config import (build_context, build_sub_system_prompt,
                                       make_tools, make_sub_tools, make_team_tools, prepare_env)
 
 
-def test_make_tools_has_twenty_with_teams():
+def test_make_tools_has_twenty_three_with_protocols():
     names = [t["name"] for t in make_tools()]
     assert names == ["bash", "read_file", "write_file", "edit_file", "glob",
                      "todo_write", "task", "load_skill", "compact",
                      "create_task", "list_tasks", "get_task", "claim_task", "complete_task",
                      "schedule_cron", "list_crons", "cancel_cron",
-                     "spawn_teammate", "send_message", "check_inbox"]
+                     "spawn_teammate", "send_message", "check_inbox",
+                     "request_shutdown", "request_plan", "review_plan"]
 
 
 def test_make_sub_tools_has_five():
     assert [t["name"] for t in make_sub_tools()] == ["bash", "read_file", "write_file", "edit_file", "glob"]
 
 
-def test_make_team_tools_has_four():
+def test_make_team_tools_has_five_with_submit_plan():
     names = [t["name"] for t in make_team_tools()]
-    assert names == ["bash", "read_file", "write_file", "send_message"]
+    assert names == ["bash", "read_file", "write_file", "send_message", "submit_plan"]
 
 
 def test_team_bash_has_no_run_in_background():
