@@ -67,6 +67,13 @@ def make_tools() -> list[dict]:
          "input_schema": {"type": "object", "properties": {}, "required": []}},
         {"name": "cancel_cron", "description": "Cancel a cron job by ID.",
          "input_schema": {"type": "object", "properties": {"job_id": {"type": "string"}}, "required": ["job_id"]}},
+        # s15: 团队 3 工具（spawn_teammate/send_message/check_inbox）
+        {"name": "spawn_teammate", "description": "Spawn a teammate agent in a background thread.",
+         "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "role": {"type": "string"}, "prompt": {"type": "string"}}, "required": ["name", "role", "prompt"]}},
+        {"name": "send_message", "description": "Send a message to a teammate via MessageBus.",
+         "input_schema": {"type": "object", "properties": {"to": {"type": "string"}, "content": {"type": "string"}}, "required": ["to", "content"]}},
+        {"name": "check_inbox", "description": "Check Lead's inbox for teammate messages.",
+         "input_schema": {"type": "object", "properties": {}, "required": []}},
     ]
 
 
@@ -86,6 +93,21 @@ def make_sub_tools() -> list[dict]:
     ]
 
 
+def make_team_tools() -> list[dict]:
+    # 队友 4 工具（无 edit/glob/todo/task/spawn_teammate——聚焦通信，防递归组队）
+    # bash 无 run_in_background（队友不派后台）
+    return [
+        {"name": "bash", "description": "Run a shell command.",
+         "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
+        {"name": "read_file", "description": "Read file contents.",
+         "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
+        {"name": "write_file", "description": "Write content to a file.",
+         "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
+        {"name": "send_message", "description": "Send a message to another agent.",
+         "input_schema": {"type": "object", "properties": {"to": {"type": "string"}, "content": {"type": "string"}}, "required": ["to", "content"]}},
+    ]
+
+
 def load() -> dict[str, Any]:
     """读取 env 并组装运行时依赖。先 scan_skills，build_context 才有目录。"""
     prepare_env()
@@ -98,4 +120,5 @@ def load() -> dict[str, Any]:
         "tools": tools,
         "sub_system": build_sub_system_prompt(os.getcwd()),
         "sub_tools": make_sub_tools(),
+        "team_tools": make_team_tools(),
     }

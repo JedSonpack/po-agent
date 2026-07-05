@@ -1,19 +1,31 @@
 import os
 from s15_agent_teams import skills
 from s15_agent_teams.config import (build_context, build_sub_system_prompt,
-                                      make_tools, make_sub_tools, prepare_env)
+                                      make_tools, make_sub_tools, make_team_tools, prepare_env)
 
 
-def test_make_tools_has_seventeen_with_cron():
+def test_make_tools_has_twenty_with_teams():
     names = [t["name"] for t in make_tools()]
     assert names == ["bash", "read_file", "write_file", "edit_file", "glob",
                      "todo_write", "task", "load_skill", "compact",
                      "create_task", "list_tasks", "get_task", "claim_task", "complete_task",
-                     "schedule_cron", "list_crons", "cancel_cron"]
+                     "schedule_cron", "list_crons", "cancel_cron",
+                     "spawn_teammate", "send_message", "check_inbox"]
 
 
 def test_make_sub_tools_has_five():
     assert [t["name"] for t in make_sub_tools()] == ["bash", "read_file", "write_file", "edit_file", "glob"]
+
+
+def test_make_team_tools_has_four():
+    names = [t["name"] for t in make_team_tools()]
+    assert names == ["bash", "read_file", "write_file", "send_message"]
+
+
+def test_team_bash_has_no_run_in_background():
+    bash = next(t for t in make_team_tools() if t["name"] == "bash")
+    assert "run_in_background" not in bash["input_schema"]["properties"]
+    assert bash["input_schema"]["required"] == ["command"]
 
 
 def test_build_context_includes_catalog(monkeypatch):

@@ -9,6 +9,7 @@ from s15_agent_teams.skills import load_skill
 from s15_agent_teams.tasks import (run_create_task, run_list_tasks, run_get_task,
                                    run_claim_task, run_complete_task)
 from s15_agent_teams.cron import run_schedule_cron, run_list_crons, run_cancel_cron
+from s15_agent_teams.teams import run_send_message, run_check_inbox
 
 WORKDIR = Path.cwd()
 TIMEOUT = 120
@@ -124,11 +125,16 @@ TOOL_HANDLERS = {"bash": run_bash, "read_file": run_read, "write_file": run_writ
                  "complete_task": run_complete_task,
                  # s14: cron 调度 3 工具
                  "schedule_cron": run_schedule_cron, "list_crons": run_list_crons,
-                 "cancel_cron": run_cancel_cron}
+                 "cancel_cron": run_cancel_cron,
+                 # s15: 团队 lead handler（spawn_teammate 需 Team 实例，cli 经 extra 接线）
+                 "send_message": run_send_message, "check_inbox": run_check_inbox}
 
 # s06: 子 agent 用 5 工具（无 todo_write 无 task 无 load_skill，防递归）
 SUB_HANDLERS = {"bash": run_bash, "read_file": run_read, "write_file": run_write,
                 "edit_file": run_edit, "glob": run_glob}
+
+# s15: 队友 base handler（bash/read/write；send_message 由 Team 按名绑定 from）
+TEAM_HANDLERS = {"bash": run_bash, "read_file": run_read, "write_file": run_write}
 
 
 def make_run_tool(handlers: dict, extra: dict | None = None) -> Callable:
