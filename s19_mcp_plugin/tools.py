@@ -13,6 +13,7 @@ from s19_mcp_plugin.teams import (run_send_message, run_check_inbox,
                                    run_request_shutdown, run_request_plan, run_review_plan)
 from s19_mcp_plugin.worktrees import (run_create_worktree, run_remove_worktree,
                                           run_keep_worktree)
+from s19_mcp_plugin.mcp import run_connect_mcp
 
 WORKDIR = Path.cwd()
 TIMEOUT = 120
@@ -138,7 +139,9 @@ TOOL_HANDLERS = {"bash": run_bash, "read_file": run_read, "write_file": run_writ
                  "review_plan": run_review_plan,
                  # s18: worktree 3 工具
                  "create_worktree": run_create_worktree, "remove_worktree": run_remove_worktree,
-                 "keep_worktree": run_keep_worktree}
+                 "keep_worktree": run_keep_worktree,
+                 # s19: MCP 连接工具
+                 "connect_mcp": run_connect_mcp}
 
 # s06: 子 agent 用 5 工具（无 todo_write 无 task 无 load_skill，防递归）
 SUB_HANDLERS = {"bash": run_bash, "read_file": run_read, "write_file": run_write,

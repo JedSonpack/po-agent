@@ -4,7 +4,7 @@ from s19_mcp_plugin.config import (build_context, build_sub_system_prompt,
                                       make_tools, make_sub_tools, make_team_tools, prepare_env)
 
 
-def test_make_tools_has_twenty_six_with_worktrees():
+def test_make_tools_has_twenty_seven_with_mcp():
     names = [t["name"] for t in make_tools()]
     assert names == ["bash", "read_file", "write_file", "edit_file", "glob",
                      "todo_write", "task", "load_skill", "compact",
@@ -12,7 +12,8 @@ def test_make_tools_has_twenty_six_with_worktrees():
                      "schedule_cron", "list_crons", "cancel_cron",
                      "spawn_teammate", "send_message", "check_inbox",
                      "request_shutdown", "request_plan", "review_plan",
-                     "create_worktree", "remove_worktree", "keep_worktree"]
+                     "create_worktree", "remove_worktree", "keep_worktree",
+                     "connect_mcp"]
 
 
 def test_make_sub_tools_has_five():

@@ -88,6 +88,9 @@ def make_tools() -> list[dict]:
          "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "discard_changes": {"type": "boolean"}}, "required": ["name"]}},
         {"name": "keep_worktree", "description": "Keep a worktree for manual review (branch preserved).",
          "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
+        # s19: MCP 连接工具
+        {"name": "connect_mcp", "description": "Connect to an MCP server and discover its tools. Tools become available as mcp__server__tool.",
+         "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
     ]
 
 
