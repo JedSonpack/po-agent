@@ -122,15 +122,19 @@ def _extract_last_text(messages) -> str:
 
 
 class Team:
-    """队伍：spawn 启动队友 daemon 线程跑自己的简化循环，完成后发 summary 给 lead。
+    """队伍：spawn 启动队友 daemon 线程跑 idle loop，完成后发 summary 给 lead。
 
-    队友 4 工具（bash/read_file/write_file/send_message）；send_message 的 from=队友名（per-spawn 绑定）。
-    无 spawn_teammate → 不能递归组队。max_turns 安全限防无限循环（真实 CC 用 idle loop）。
+    s16：队友不再 max_turns 退出——LLM 返回非 tool_use 后进 idle，轮询 inbox 等
+    shutdown_request（握手关机）或新消息（继续）。turn 顶上 drain inbox 分发协议消息。
+    队友 5 工具（bash/read_file/write_file/send_message/submit_plan）；send_message 的
+    from=队友名（per-spawn 绑定）。无 spawn_teammate → 不能递归组队。max_turns 安全限 +
+    max_idle_polls 兜底防真无限挂（生产 6000=100min；daemon 线程进程退出即杀）。
     """
 
     def __init__(self, *, client, model, bus: MessageBus, base_handlers: dict,
                  sub_tools: list, trigger: Callable, max_turns: int = 10,
-                 max_tokens: int = 8000):
+                 max_tokens: int = 8000, idle_poll_interval: float = 1.0,
+                 max_idle_polls: int = 6000):
         self.client = client
         self.model = model
         self.bus = bus
@@ -139,17 +143,70 @@ class Team:
         self.trigger = trigger
         self.max_turns = max_turns
         self.max_tokens = max_tokens
+        self.idle_poll_interval = idle_poll_interval
+        self.max_idle_polls = max_idle_polls
 
     def _make_sub_run_tool(self, name: str) -> Callable:
-        """构造队友分发器：base_handlers + send_message（from 绑定 name）。"""
+        """构造队友分发器：base_handlers + send_message（from 绑定 name）+ submit_plan。"""
         handlers = dict(self.base_handlers)
         handlers["send_message"] = lambda to, content: (self.bus.send(name, to, content), "Sent")[1]
+        handlers["submit_plan"] = lambda plan: _teammate_submit_plan(name, plan, self.bus)
 
         def run_tool(tool_name: str, tool_input: dict) -> str:
             handler = handlers.get(tool_name)
             return handler(**tool_input) if handler else f"Unknown: {tool_name}"
 
         return run_tool
+
+    def _handle_inbox_message(self, name: str, msg: dict, messages: list) -> bool:
+        """按类型分发协议消息。shutdown_request → 回复 shutdown_response + 返 True（停）；
+        plan_approval_response → 注入 [Plan approved/rejected]；else 返 False。"""
+        msg_type = msg.get("type", "message")
+        meta = msg.get("metadata", {})
+        req_id = meta.get("request_id", "")
+        if msg_type == "shutdown_request":
+            self.bus.send(name, "lead", "Shutting down gracefully.", "shutdown_response",
+                          {"request_id": req_id, "approve": True})
+            print(f"  \033[35m[protocol] {name} approved shutdown ({req_id})\033[0m")
+            return True
+        if msg_type == "plan_approval_response":
+            approve = meta.get("approve", False)
+            if approve:
+                messages.append({"role": "user", "content": "[Plan approved] Proceed with the task."})
+            else:
+                messages.append({"role": "user",
+                                 "content": f"[Plan rejected] Feedback: {msg.get('content', '')}"})
+        return False
+
+    def _drain_inbox(self, name: str, messages: list) -> tuple:
+        """读 inbox，分离协议消息（dispatch，shutdown 置位）与非协议（拼 <inbox> 注入）。
+        返 (shutdown, got_msg)。"""
+        inbox = self.bus.read_inbox(name)
+        if not inbox:
+            return False, False
+        non_protocol = []
+        shutdown = False
+        for msg in inbox:
+            if msg.get("type") in ("shutdown_request", "plan_approval_response"):
+                if self._handle_inbox_message(name, msg, messages):
+                    shutdown = True
+            else:
+                non_protocol.append(msg)
+        if non_protocol:
+            messages.append({"role": "user",
+                             "content": f"<inbox>{json.dumps(non_protocol)}</inbox>"})
+        return shutdown, bool(non_protocol)
+
+    def _idle_wait(self, name: str, messages: list) -> str:
+        """idle：轮询 inbox 等待 shutdown 或新消息。返 'shutdown'/'message'/'timeout'。"""
+        for _ in range(self.max_idle_polls):
+            time.sleep(self.idle_poll_interval)
+            shutdown, got_msg = self._drain_inbox(name, messages)
+            if shutdown:
+                return "shutdown"
+            if got_msg:
+                return "message"
+        return "timeout"
 
     def spawn(self, name: str, role: str, prompt: str) -> str:
         """启动队友 daemon 线程，立即返回。同名去重。"""
@@ -162,15 +219,18 @@ class Team:
 
     def _run(self, name: str, role: str, prompt: str) -> None:
         system = (f"You are '{name}', a {role}. Use tools to complete tasks. "
-                  f"Send results via send_message to 'lead'.")
+                  f"Check inbox for protocol messages (shutdown_request, etc).")
         messages = [{"role": "user", "content": prompt}]
         sub_run_tool = self._make_sub_run_tool(name)
 
-        for _ in range(self.max_turns):
-            inbox = self.bus.read_inbox(name)
-            if inbox:
-                messages.append({"role": "user",
-                                 "content": f"<inbox>{json.dumps(inbox)}</inbox>"})
+        shutdown = False
+        turns = 0
+        while not shutdown and turns < self.max_turns:
+            turns += 1
+            # turn 顶上 drain inbox（协议消息分发 + 非协议注入）
+            shutdown, _ = self._drain_inbox(name, messages)
+            if shutdown:
+                break
             try:
                 response = self.client.messages.create(
                     model=self.model, system=system, messages=messages[-20:],
@@ -179,7 +239,12 @@ class Team:
                 break
             messages.append({"role": "assistant", "content": response.content})
             if response.stop_reason != "tool_use":
-                break
+                # idle：等 inbox（shutdown 退出 / 新消息继续 / 超时退出）
+                result = self._idle_wait(name, messages)
+                if result in ("shutdown", "timeout"):
+                    break
+                # "message" → 继续循环（新一轮 LLM turn 带注入消息）
+                continue
             results = []
             for block in response.content:
                 if getattr(block, "type", None) != "tool_use":
@@ -256,15 +321,17 @@ def run_review_plan(request_id: str, approve: bool, feedback: str = "") -> str:
     return f"Plan {'approved' if approve else 'rejected'} ({request_id})"
 
 
-def _teammate_submit_plan(from_name: str, plan: str) -> str:
+def _teammate_submit_plan(from_name: str, plan: str, bus: MessageBus = None) -> str:
     """队友提交计划给 Lead 审批：创建 plan_approval 状态 + 发 plan_approval_request。
 
+    bus 默认模块 BUS（lead 侧/单测）；Teammate 经 _make_sub_run_tool 绑定 self.bus。
     注意：协议级请求，非代码级门控——提交后队友线程继续跑，仍可调 bash/write。
     真实门控需阻塞队友工具分发直到审批回复。教学版只演示消息流程。
     """
+    bus = bus if bus is not None else BUS
     req_id = new_request_id()
     pending_requests[req_id] = ProtocolState(
         request_id=req_id, type="plan_approval", sender=from_name, target="lead",
         status="pending", payload=plan)
-    BUS.send(from_name, "lead", plan, "plan_approval_request", {"request_id": req_id})
+    bus.send(from_name, "lead", plan, "plan_approval_request", {"request_id": req_id})
     return f"Plan submitted ({req_id}). Waiting for approval..."

@@ -167,7 +167,8 @@ def test_spawn_registers_returns_and_finishes(tmp_path):
     bus = MessageBus(mailbox_dir=tmp_path)
     team = Team(client=FakeClient([make_response([text_block("all done")], "end_turn")]),
                 model="m", bus=bus, base_handlers={}, sub_tools=[],
-                trigger=lambda ev, *a: None)
+                trigger=lambda ev, *a: None,
+                idle_poll_interval=0.01, max_idle_polls=2)
     ret = team.spawn("alice", "dev", "do something")
     assert ret == "Teammate 'alice' spawned as dev"
     assert _wait_done("alice")
@@ -193,7 +194,8 @@ def test_run_inbox_injected_at_round_top(tmp_path):
             return make_response([text_block("ok")], "end_turn")
 
     team = Team(client=Cap(), model="m", bus=bus, base_handlers={},
-                sub_tools=[], trigger=lambda ev, *a: None)
+                sub_tools=[], trigger=lambda ev, *a: None,
+                idle_poll_interval=0.01, max_idle_polls=2)
     bus.send("lead", "alice", "status check")
     team._run("alice", "dev", "do")
     inbox_msgs = [m for m in captured[0] if "<inbox>" in str(m.get("content", ""))]
@@ -228,7 +230,8 @@ def test_run_send_message_uses_teammate_name(tmp_path):
                                       {"to": "lead", "content": "hi from alice"})], "tool_use"),
         make_response([text_block("all done")], "end_turn"),
     ]), model="m", bus=bus, base_handlers={}, sub_tools=[],
-       trigger=lambda ev, *a: None)
+       trigger=lambda ev, *a: None,
+       idle_poll_interval=0.01, max_idle_polls=2)
     team._run("alice", "dev", "do")
     lead = bus.read_inbox("lead")
     assert len(lead) == 2  # 循环内 send_message + 完成后 result
@@ -251,7 +254,8 @@ def test_run_blocked_tool_skips(tmp_path):
         make_response([text_block("done")], "end_turn"),
     ]), model="m", bus=bus,
        base_handlers={"bash": lambda command: calls.append("bash") or "OUT"},
-       sub_tools=[], trigger=trigger)
+       sub_tools=[], trigger=trigger,
+       idle_poll_interval=0.01, max_idle_polls=2)
     team._run("alice", "dev", "do")
     assert calls == []  # 阻塞，未执行
 
@@ -264,7 +268,8 @@ def test_run_post_tool_use_hook(tmp_path):
         make_response([text_block("done")], "end_turn"),
     ]), model="m", bus=bus,
        base_handlers={"bash": lambda command: "OUT"},
-       sub_tools=[], trigger=lambda ev, *a: events.append(ev) or None)
+       sub_tools=[], trigger=lambda ev, *a: events.append(ev) or None,
+       idle_poll_interval=0.01, max_idle_polls=2)
     team._run("alice", "dev", "do")
     assert "PreToolUse" in events
     assert "PostToolUse" in events
@@ -446,3 +451,181 @@ def test_run_check_inbox_routes_and_tags(tmp_bus):
     assert "alice" in out and "shutdown_response" in out and "req_1" in out
     assert pending_requests["req_1"].status == "approved"  # 路由了
     assert run_check_inbox() == "(inbox empty)"  # 消费了
+
+
+# ── s16 Team idle loop + dispatch ──
+def _team(tmp_path, client, base_handlers=None, trigger=None, **kw):
+    """构造 Team，默认短 idle 参数（测试不挂）。kw 覆盖默认。"""
+    bus = MessageBus(mailbox_dir=tmp_path)
+    defaults = dict(idle_poll_interval=0.01, max_idle_polls=2)
+    defaults.update(kw)
+    return Team(client=client, model="m", bus=bus,
+                base_handlers=base_handlers or {}, sub_tools=[],
+                trigger=trigger or (lambda ev, *a: None), **defaults)
+
+
+def test_handle_inbox_shutdown_replies_and_stops(tmp_path):
+    bus = MessageBus(mailbox_dir=tmp_path)
+    team = Team(client=FakeClient([]), model="m", bus=bus, base_handlers={},
+                sub_tools=[], trigger=lambda ev, *a: None)
+    messages = []
+    stop = team._handle_inbox_message("alice", {
+        "type": "shutdown_request", "from": "lead", "content": "shut down",
+        "metadata": {"request_id": "req_1"}}, messages)
+    assert stop is True
+    lead = bus.read_inbox("lead")
+    assert lead[0]["type"] == "shutdown_response"
+    assert lead[0]["metadata"] == {"request_id": "req_1", "approve": True}
+    assert lead[0]["from"] == "alice"
+
+
+def test_handle_inbox_plan_approved_injects(tmp_path):
+    team = _team(tmp_path, FakeClient([]))
+    messages = []
+    stop = team._handle_inbox_message("alice", {
+        "type": "plan_approval_response", "from": "lead", "content": "",
+        "metadata": {"request_id": "req_1", "approve": True}}, messages)
+    assert stop is False
+    assert "[Plan approved]" in messages[-1]["content"]
+
+
+def test_handle_inbox_plan_rejected_injects_feedback(tmp_path):
+    team = _team(tmp_path, FakeClient([]))
+    messages = []
+    team._handle_inbox_message("alice", {
+        "type": "plan_approval_response", "from": "lead", "content": "needs tests",
+        "metadata": {"request_id": "req_1", "approve": False}}, messages)
+    assert "[Plan rejected]" in messages[-1]["content"]
+    assert "needs tests" in messages[-1]["content"]
+
+
+def test_handle_inbox_other_returns_false(tmp_path):
+    team = _team(tmp_path, FakeClient([]))
+    assert team._handle_inbox_message("alice",
+        {"type": "message", "from": "lead", "content": "hi", "metadata": {}}, []) is False
+
+
+def test_drain_inbox_separates_protocol_and_nonprotocol(tmp_path):
+    bus = MessageBus(mailbox_dir=tmp_path)
+    team = Team(client=FakeClient([]), model="m", bus=bus, base_handlers={},
+                sub_tools=[], trigger=lambda ev, *a: None)
+    bus.send("lead", "alice", "do thing", "message")              # 非协议
+    bus.send("lead", "alice", "shut down", "shutdown_request",
+             {"request_id": "req_1"})                             # 协议
+    messages = []
+    shutdown, got_msg = team._drain_inbox("alice", messages)
+    assert shutdown is True
+    assert got_msg is True  # 非协议消息注入了
+    assert "<inbox>" in messages[-1]["content"]
+    # 协议消息已回复 shutdown_response
+    assert bus.read_inbox("lead")[0]["type"] == "shutdown_response"
+
+
+def test_drain_inbox_empty(tmp_path):
+    team = _team(tmp_path, FakeClient([]))
+    assert team._drain_inbox("alice", []) == (False, False)
+
+
+def test_idle_wait_shutdown(tmp_path):
+    bus = MessageBus(mailbox_dir=tmp_path)
+    team = Team(client=FakeClient([]), model="m", bus=bus, base_handlers={},
+                sub_tools=[], trigger=lambda ev, *a: None,
+                idle_poll_interval=0.01, max_idle_polls=5)
+    bus.send("lead", "alice", "shut down", "shutdown_request", {"request_id": "req_1"})
+    assert team._idle_wait("alice", []) == "shutdown"
+
+
+def test_idle_wait_message(tmp_path):
+    bus = MessageBus(mailbox_dir=tmp_path)
+    team = Team(client=FakeClient([]), model="m", bus=bus, base_handlers={},
+                sub_tools=[], trigger=lambda ev, *a: None,
+                idle_poll_interval=0.01, max_idle_polls=5)
+    bus.send("lead", "alice", "new task", "message")
+    assert team._idle_wait("alice", []) == "message"
+
+
+def test_idle_wait_timeout(tmp_path):
+    team = _team(tmp_path, FakeClient([]), max_idle_polls=2)
+    assert team._idle_wait("alice", []) == "timeout"
+
+
+def test_run_active_turn_shutdown_no_llm(tmp_path):
+    """turn 顶上 drain 到 shutdown_request → 回复 + 退出，不调 LLM。"""
+    calls = []
+
+    class Boom:
+        @property
+        def messages(self): return self
+        def create(self, **kw):
+            calls.append("llm"); return make_response([text_block("x")], "end_turn")
+
+    bus = MessageBus(mailbox_dir=tmp_path)
+    team = Team(client=Boom(), model="m", bus=bus, base_handlers={},
+                sub_tools=[], trigger=lambda ev, *a: None,
+                idle_poll_interval=0.01, max_idle_polls=2)
+    bus.send("lead", "alice", "shut down", "shutdown_request", {"request_id": "req_1"})
+    team._run("alice", "dev", "do")
+    assert calls == []  # 未调 LLM
+    lead = bus.read_inbox("lead")
+    types = [m["type"] for m in lead]
+    assert "shutdown_response" in types
+    assert "result" in types  # 退出前发 summary
+    assert "alice" not in active_teammates
+
+
+def test_run_plan_approval_injected_then_idle(tmp_path):
+    """turn 顶上 drain 到 plan_approval_response → 注入 [Plan approved] → LLM turn → idle 退出。"""
+    captured = []
+
+    class Cap:
+        @property
+        def messages(self): return self
+        def create(self, **kw):
+            captured.append(kw.get("messages"))
+            return make_response([text_block("ok")], "end_turn")
+
+    bus = MessageBus(mailbox_dir=tmp_path)
+    team = Team(client=Cap(), model="m", bus=bus, base_handlers={},
+                sub_tools=[], trigger=lambda ev, *a: None,
+                idle_poll_interval=0.01, max_idle_polls=2)
+    bus.send("lead", "alice", "", "plan_approval_response",
+             {"request_id": "req_1", "approve": True})
+    team._run("alice", "dev", "do")
+    # 首轮 LLM 的 messages 含 [Plan approved] 注入
+    assert any("[Plan approved]" in str(m.get("content", "")) for m in captured[0])
+
+
+def test_run_submit_plan_creates_state(tmp_path):
+    """队友调 submit_plan 工具 → 创建 plan_approval 状态 + 发 plan_approval_request。"""
+    team = _team(tmp_path, FakeClient([
+        make_response([tool_use_block("t1", "submit_plan", {"plan": "refactor X"})], "tool_use"),
+        make_response([text_block("done")], "end_turn"),
+    ]), base_handlers={})
+    team._run("alice", "dev", "do")
+    assert len(pending_requests) == 1
+    state = next(iter(pending_requests.values()))
+    assert state.type == "plan_approval"
+    assert state.sender == "alice"
+    assert state.payload == "refactor X"
+    # plan_approval_request 发到 lead 邮箱
+    lead = team.bus.read_inbox("lead")
+    assert any(m["type"] == "plan_approval_request" for m in lead)
+
+
+def test_run_idle_shutdown_via_thread(tmp_path):
+    """spawn 后 alice 跑完 end_turn → idle；发 shutdown_request → alice 退出。"""
+    bus = MessageBus(mailbox_dir=tmp_path)
+    team = Team(client=FakeClient([make_response([text_block("working")], "end_turn")]),
+                model="m", bus=bus, base_handlers={}, sub_tools=[],
+                trigger=lambda ev, *a: None,
+                idle_poll_interval=0.01, max_idle_polls=10000)
+    team.spawn("alice", "dev", "do")
+    # 给 alice 一点时间进入 idle
+    time.sleep(0.05)
+    assert "alice" in active_teammates  # 还在 idle
+    bus.send("lead", "alice", "shut down", "shutdown_request", {"request_id": "req_1"})
+    assert _wait_done("alice", timeout=2.0)
+    lead = bus.read_inbox("lead")
+    types = [m["type"] for m in lead]
+    assert "shutdown_response" in types
+    assert "result" in types
