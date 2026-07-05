@@ -4,7 +4,8 @@ import pytest
 from types import SimpleNamespace
 from s15_agent_teams import background
 from s15_agent_teams.background import (is_slow_operation, should_run_background,
-                                             start_background_task, collect_background_results)
+                                             start_background_task, collect_background_results,
+                                             has_pending_background)
 
 
 @pytest.fixture(autouse=True)
@@ -163,3 +164,29 @@ def test_collect_summary_truncates():
         background.background_results["bg_0001"] = long_out
     n = collect_background_results()[0]
     assert "<summary>" + "x" * 200 + "</summary>" in n
+
+
+# ── s15 新增：has_pending_background ──
+def test_has_pending_background_empty():
+    assert has_pending_background() is False
+
+
+def test_has_pending_background_running_false():
+    with background.background_lock:
+        background.background_tasks["bg_0001"] = {"tool_use_id": "b1", "command": "c", "status": "running"}
+    assert has_pending_background() is False
+
+
+def test_has_pending_background_completed_true():
+    with background.background_lock:
+        background.background_tasks["bg_0001"] = {"tool_use_id": "b1", "command": "c", "status": "completed"}
+        background.background_results["bg_0001"] = "DONE"
+    assert has_pending_background() is True
+
+
+def test_has_pending_background_after_collect_false():
+    with background.background_lock:
+        background.background_tasks["bg_0001"] = {"tool_use_id": "b1", "command": "c", "status": "completed"}
+        background.background_results["bg_0001"] = "DONE"
+    collect_background_results()
+    assert has_pending_background() is False

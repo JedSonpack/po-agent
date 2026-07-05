@@ -72,3 +72,9 @@ def collect_background_results() -> list[str]:
             f"</task_notification>")
         print(f"  \033[32m[background done] {bg_id}: {task['command'][:40]} ({len(output)} chars)\033[0m")
     return notifications
+
+
+def has_pending_background() -> bool:
+    """非消费式：有已完成未收集的后台任务返 True。inbox_poller 的 wake 条件用。"""
+    with background_lock:
+        return any(t["status"] == "completed" for t in background_tasks.values())
