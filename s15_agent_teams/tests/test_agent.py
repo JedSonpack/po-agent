@@ -496,3 +496,33 @@ def test_cron_queue_injected_as_scheduled():
                run_tool=lambda n, i: "OUT", trigger=lambda ev, *a: None)
     # [Scheduled] user 消息已注入
     assert any("[Scheduled] check progress" == str(m.get("content", "")) for m in msgs)
+
+
+# ── s15 新增：团队工具经 run_tool 分发 ──────────────────────
+def test_spawn_teammate_dispatches_via_run_tool():
+    client = FakeClient([
+        make_response([tool_use_block("t1", "spawn_teammate",
+                                      {"name": "alice", "role": "dev", "prompt": "do X"})], "tool_use"),
+        make_response([text_block("ok")], "end_turn"),
+    ])
+    calls = []
+    msgs = [{"role": "user", "content": "x"}]
+    agent_loop(client=client, model="m", context=ctx(), tools=[], messages=msgs,
+               run_tool=lambda n, i: calls.append((n, i)) or "Teammate 'alice' spawned as dev",
+               trigger=lambda ev, *a: None)
+    assert calls == [("spawn_teammate", {"name": "alice", "role": "dev", "prompt": "do X"})]
+    assert msgs[2]["content"][0]["content"] == "Teammate 'alice' spawned as dev"
+
+
+def test_check_inbox_dispatches_via_run_tool():
+    client = FakeClient([
+        make_response([tool_use_block("t1", "check_inbox", {})], "tool_use"),
+        make_response([text_block("ok")], "end_turn"),
+    ])
+    calls = []
+    msgs = [{"role": "user", "content": "x"}]
+    agent_loop(client=client, model="m", context=ctx(), tools=[], messages=msgs,
+               run_tool=lambda n, i: calls.append((n, i)) or "(inbox empty)",
+               trigger=lambda ev, *a: None)
+    assert calls == [("check_inbox", {})]
+    assert msgs[2]["content"][0]["content"] == "(inbox empty)"
