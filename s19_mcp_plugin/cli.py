@@ -29,6 +29,7 @@ from s19_mcp_plugin.memory import Memory
 from s19_mcp_plugin.cron import start_scheduler, agent_lock
 from s19_mcp_plugin.teams import Team, BUS, active_teammates, consume_lead_inbox
 from s19_mcp_plugin.background import has_pending_background, collect_background_results
+from s19_mcp_plugin.mcp import ToolPool
 
 
 def main() -> None:
@@ -44,7 +45,9 @@ def main() -> None:
         base_handlers=TEAM_HANDLERS, sub_tools=cfg["team_tools"],
         trigger=trigger_hooks,
     )
-    run_tool = make_run_tool(TOOL_HANDLERS, {"task": subagent.run, "spawn_teammate": team.spawn})
+    # s19: ToolPool 取代 make_run_tool——动态工具池（builtin + extra + MCP）
+    tool_pool = ToolPool(cfg["tools"], TOOL_HANDLERS,
+                         {"task": subagent.run, "spawn_teammate": team.spawn})
     nag = TodoNag()
     compactor = Compactor(client=cfg["client"], model=cfg["model"])
     memory = Memory(client=cfg["client"], model=cfg["model"], memory_dir=Path.cwd() / ".memory")
@@ -60,8 +63,9 @@ def main() -> None:
             history.append({"role": "user", "content": inject})
         agent_loop(
             client=cfg["client"], model=cfg["model"], context=cfg["context"],
-            tools=cfg["tools"], messages=history, run_tool=run_tool,
+            tools=cfg["tools"], messages=history, run_tool=tool_pool.run_tool,
             trigger=trigger_hooks, nag=nag, compact=compactor, memory=memory,
+            tool_pool=tool_pool,
         )
         for block in history[-1]["content"]:
             if getattr(block, "type", None) == "text":
