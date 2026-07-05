@@ -28,7 +28,7 @@
 | s15 | Agent Teams | ✅ | [`s15_agent_teams/`](s15_agent_teams/) | 多 agent 组队协作 |
 | s16 | Team Protocols | ✅ | [`s16_team_protocols/`](s16_team_protocols/) | 队友之间的通信协议 |
 | s17 | Autonomous Agents | ✅ | [`s17_autonomous_agents/`](s17_autonomous_agents/) | 自治 agent，自己看板、自己认领 |
-| s18 | Worktree Isolation | ⬜ | `s18_worktree_isolation/` | git worktree 隔离，并行互不干扰 |
+| s18 | Worktree Isolation | ✅ | [`s18_worktree_isolation/`](s18_worktree_isolation/) | git worktree 隔离，并行互不干扰 |
 | s19 | MCP Tools | ⬜ | `s19_mcp_plugin/` | 用 MCP 标准协议外接工具 |
 | s20 | Comprehensive Agent | ⬜ | `s20_comprehensive/` | 全部机制集成到一个循环 |
 
@@ -155,5 +155,12 @@
 - 计划：[`docs/superpowers/plans/2026-07-05-s17-autonomous-agents.md`](docs/superpowers/plans/2026-07-05-s17-autonomous-agents.md)
 - 要点：队友自治认领（`tasks.py`+`teams.py`）——`claim_task` 加 owner 检查（`if task.owner: return "already owned"`）；`scan_unclaimed_tasks()`（pending+无 owner+can_start）；`Team.idle_poll(name,messages,role)`（替换 s16 `_idle_wait`：轮询 inbox 优先 + 扫任务板自动认领 → 'work'/'shutdown'/'timeout'）；`_run` 改 WORK→IDLE→SHUTDOWN 外循环（身份重注入 `len(messages)<=3 → insert(0,<identity>)`，WORK 内循环 max_turns，IDLE idle_poll，shutdown/timeout 退出）；`_make_sub_run_tool` 加 claim_task（绑定 owner=name）；队友 +3 工具（list_tasks/claim_task/complete_task，TEAM_HANDLERS+make_team_tools 5→8）；构造默认 idle_poll_interval=5.0/max_idle_polls=12（60s 超时）；`agent_loop`/cli 不变
 - 验收：334/334 测试通过（全量 2501）；实时跑通——Lead 创建任务+spawn alice，alice 自己 list_tasks→claim_task→write_file→complete_task，IDLE 60s 无新任务 → `[idle] timeout` → 发 result 关机 → `[all teammates done]`
+
+### s18 — Worktree Isolation ✅
+- 目录：[`s18_worktree_isolation/`](s18_worktree_isolation/)（worktrees / tasks / teams / tools / cron / background / recovery / config / skills / hooks / todo / subagent / compact / memory / system_prompt / agent / cli / __main__ + tests）
+- 规格：[`docs/superpowers/specs/2026-07-05-s18-worktree-isolation-design.md`](docs/superpowers/specs/2026-07-05-s18-worktree-isolation-design.md)
+- 计划：[`docs/superpowers/plans/2026-07-05-s18-worktree-isolation.md`](docs/superpowers/plans/2026-07-05-s18-worktree-isolation.md)
+- 要点：git worktree 目录隔离（`worktrees.py`）——`validate_worktree_name`（`^[A-Za-z0-9._-]{1,64}$`）+ `run_git` + `log_event`（events.jsonl）+ `create_worktree`（git worktree add -b wt/{name} HEAD + 可选 bind）+ `bind_task_to_worktree`（写 task.worktree，状态保持 pending）+ `_count_worktree_changes` + `remove_worktree`（有改动默认拒绝，discard_changes 强制）+ `keep_worktree` + 3 lead handler；`Task` 加 `worktree` 字段；`safe_path`/`run_bash`/`run_read`/`run_write` 加 `cwd` 参数；Team `wt_ctx`——`_run` 创建 wt_ctx，`_make_sub_run_tool` bash/read/write 仅当 wt_ctx 指向 worktree 时注入 cwd（无 wt 原样调 base 兼容 stub），`_claim_with_wt`（claim + task.worktree→设 wt_ctx）+ `_complete_reset_wt`（重置），`idle_poll` auto-claim 也经 `_claim_with_wt` 切 wt_ctx；`agent_loop`/cli 不变
+- 验收：371/371 测试通过（全量 2872）；实时跑通——Lead create_task + create_worktree（bind）→ `git worktree list` 显示 `.worktrees/demo-wt` on `wt/demo-wt`，task.worktree=demo-wt status=pending（bind 不改状态），keep_worktree 保留
 
 > 后续每完成一个阶段，更新对应行的状态（⬜→🚧→✅），并在「已完成阶段详情」补一节。
