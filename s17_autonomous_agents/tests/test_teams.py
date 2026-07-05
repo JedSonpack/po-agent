@@ -138,9 +138,11 @@ def test_run_check_inbox_truncates_long(tmp_bus):
 
 # ── Team ──
 @pytest.fixture(autouse=True)
-def _reset_active():
+def _reset_active(monkeypatch):
     active_teammates.clear()
     pending_requests.clear()
+    # 默认无未认领任务（idle_poll 不自动认领）；自动认领测试单独覆盖
+    monkeypatch.setattr(teams, "scan_unclaimed_tasks", lambda: [])
     yield
     active_teammates.clear()
     pending_requests.clear()
@@ -218,7 +220,8 @@ def test_run_sliding_window_twenty(tmp_path):
 
     team = Team(client=Cap(), model="m", bus=bus,
                 base_handlers={"bash": lambda command: "OUT"},
-                sub_tools=[], trigger=lambda ev, *a: None, max_turns=25)
+                sub_tools=[], trigger=lambda ev, *a: None, max_turns=25,
+                idle_poll_interval=0.01, max_idle_polls=2)
     team._run("alice", "dev", "do")
     assert len(captured[-1]) <= 20  # messages[-20:]
 
@@ -282,7 +285,8 @@ def test_run_summary_reversed_search(tmp_path):
         make_response([tool_use_block("t2", "bash", {"command": "ls"})], "tool_use"),
     ]), model="m", bus=bus,
        base_handlers={"bash": lambda command: "OUT"},
-       sub_tools=[], trigger=lambda ev, *a: None, max_turns=2)
+       sub_tools=[], trigger=lambda ev, *a: None, max_turns=2,
+       idle_poll_interval=0.01, max_idle_polls=2)
     team._run("alice", "dev", "do")
     assert bus.read_inbox("lead")[0]["content"] == "partial answer"
 
@@ -291,7 +295,8 @@ def test_run_max_turns_fallback_done(tmp_path):
     bus = MessageBus(mailbox_dir=tmp_path)
     team = Team(client=AlwaysToolClient(), model="m", bus=bus,
                 base_handlers={"bash": lambda command: "OUT"},
-                sub_tools=[], trigger=lambda ev, *a: None, max_turns=3)
+                sub_tools=[], trigger=lambda ev, *a: None, max_turns=3,
+                idle_poll_interval=0.01, max_idle_polls=2)
     team._run("alice", "dev", "do")
     assert bus.read_inbox("lead")[0]["content"] == "Done."
     assert "alice" not in active_teammates
@@ -309,7 +314,8 @@ def test_run_llm_exception_breaks(tmp_path):
             raise RuntimeError("network down")
 
     team = Team(client=Boom(), model="m", bus=bus, base_handlers={},
-                sub_tools=[], trigger=lambda ev, *a: None)
+                sub_tools=[], trigger=lambda ev, *a: None,
+                idle_poll_interval=0.01, max_idle_polls=2)
     team._run("alice", "dev", "do")
     assert bus.read_inbox("lead")[0]["content"] == "Done."
     assert "alice" not in active_teammates
@@ -526,27 +532,42 @@ def test_drain_inbox_empty(tmp_path):
     assert team._drain_inbox("alice", []) == (False, False)
 
 
-def test_idle_wait_shutdown(tmp_path):
+def test_idle_poll_shutdown(tmp_path):
     bus = MessageBus(mailbox_dir=tmp_path)
     team = Team(client=FakeClient([]), model="m", bus=bus, base_handlers={},
                 sub_tools=[], trigger=lambda ev, *a: None,
                 idle_poll_interval=0.01, max_idle_polls=5)
     bus.send("lead", "alice", "shut down", "shutdown_request", {"request_id": "req_1"})
-    assert team._idle_wait("alice", []) == "shutdown"
+    assert team.idle_poll("alice", [], "dev") == "shutdown"
 
 
-def test_idle_wait_message(tmp_path):
+def test_idle_poll_message(tmp_path):
     bus = MessageBus(mailbox_dir=tmp_path)
     team = Team(client=FakeClient([]), model="m", bus=bus, base_handlers={},
                 sub_tools=[], trigger=lambda ev, *a: None,
                 idle_poll_interval=0.01, max_idle_polls=5)
     bus.send("lead", "alice", "new task", "message")
-    assert team._idle_wait("alice", []) == "message"
+    messages = []
+    assert team.idle_poll("alice", messages, "dev") == "work"
+    assert "<inbox>" in messages[-1]["content"]
 
 
-def test_idle_wait_timeout(tmp_path):
+def test_idle_poll_timeout(tmp_path):
     team = _team(tmp_path, FakeClient([]), max_idle_polls=2)
-    assert team._idle_wait("alice", []) == "timeout"
+    assert team.idle_poll("alice", [], "dev") == "timeout"
+
+
+def test_idle_poll_auto_claim(tmp_path, monkeypatch):
+    """idle_poll 扫到未认领任务 → claim → 注入 <auto-claimed> + 返 'work'。"""
+    monkeypatch.setattr(teams, "scan_unclaimed_tasks",
+                        lambda: [{"id": "task_1", "subject": "do X"}])
+    monkeypatch.setattr(teams, "claim_task",
+                        lambda task_id, owner="agent": f"Claimed {task_id} (do X)")
+    team = _team(tmp_path, FakeClient([]), max_idle_polls=5)
+    messages = []
+    assert team.idle_poll("alice", messages, "dev") == "work"
+    assert "<auto-claimed>" in messages[-1]["content"]
+    assert "do X" in messages[-1]["content"]
 
 
 def test_run_active_turn_shutdown_no_llm(tmp_path):
@@ -629,3 +650,48 @@ def test_run_idle_shutdown_via_thread(tmp_path):
     types = [m["type"] for m in lead]
     assert "shutdown_response" in types
     assert "result" in types
+
+
+# ── s17 新增：身份重注入 + auto-claim WORK→IDLE 循环 ──
+def test_run_identity_reinjected_when_messages_short(tmp_path):
+    """WORK 阶段顶上：messages 过短（≤3，模拟压缩后）→ 注入 <identity>。"""
+    captured = []
+
+    class Cap:
+        @property
+        def messages(self): return self
+        def create(self, **kw):
+            captured.append(kw.get("messages"))
+            return make_response([text_block("ok")], "end_turn")
+
+    team = Team(client=Cap(), model="m", bus=MessageBus(mailbox_dir=tmp_path),
+                base_handlers={}, sub_tools=[], trigger=lambda ev, *a: None,
+                idle_poll_interval=0.01, max_idle_polls=2)
+    team._run("alice", "backend", "do")
+    # 首轮 WORK 的 messages 含 <identity>（初始 messages=[prompt] len 1 ≤ 3）
+    assert any("<identity>" in str(m.get("content", "")) for m in captured[0])
+    assert "backend" in str(captured[0][0]["content"])
+
+
+def test_run_auto_claim_cycle(tmp_path, monkeypatch):
+    """IDLE 扫到任务 → auto-claim → 新 WORK phase 跑 → IDLE 超时退出。"""
+    scan_calls = []
+
+    def fake_scan():
+        scan_calls.append(1)
+        # 第一次 IDLE 返回任务；之后返回空（claim 后任务不在了）
+        return [{"id": "task_1", "subject": "do X"}] if len(scan_calls) == 1 else []
+
+    monkeypatch.setattr(teams, "scan_unclaimed_tasks", fake_scan)
+    monkeypatch.setattr(teams, "claim_task",
+                        lambda task_id, owner="agent": f"Claimed {task_id} (do X)")
+    team = _team(tmp_path, FakeClient([
+        make_response([text_block("working on claimed task")], "end_turn"),  # WORK1（初始）
+        make_response([text_block("done X")], "end_turn"),                    # WORK2（auto-claim 后）
+    ]), max_idle_polls=2)
+    messages_snapshot = []
+    team._run("alice", "backend", "do")
+    # auto-claimed 消息在 messages 里
+    lead = team.bus.read_inbox("lead")
+    assert lead[-1]["type"] == "result"
+    assert "done X" in lead[-1]["content"]

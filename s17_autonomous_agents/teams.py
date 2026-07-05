@@ -1,8 +1,8 @@
-"""Team Protocols — MessageBus（文件收件箱）+ 协议状态机 + Team 类（idle loop）+ lead 工具。
+"""Autonomous Agents — MessageBus + 协议状态机 + Team（WORK→IDLE→SHUTDOWN 自治）+ lead 工具。
 
-s15 队友是 max_turns 退出；s16 队友 idle loop 等待 inbox（shutdown_request/plan_approval_response）。
-两种协议一套机制：shutdown（Lead→队友握手关机）/ plan_approval（队友→Lead 提交计划审批）。
-request_id 贯穿请求-回复链；match_response 类型校验 + 幂等；consume_lead_inbox 统一路由。
+s16 队友 idle 等 inbox；s17 队友 idle 还扫任务板自动认领（scan_unclaimed_tasks）。
+生命周期三阶段：WORK（max_turns 内循环）→ IDLE（idle_poll 轮询 inbox + 任务板，60s 超时）→ SHUTDOWN。
+身份重注入：压缩后 messages 过短则重新注入 <identity>。claim_task owner 检查防并发认领覆盖。
 """
 import json
 import random
@@ -11,6 +11,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
+
+from s17_autonomous_agents.tasks import scan_unclaimed_tasks, claim_task
 
 WORKDIR = Path.cwd()
 MAILBOX_DIR = WORKDIR / ".mailboxes"
@@ -122,19 +124,18 @@ def _extract_last_text(messages) -> str:
 
 
 class Team:
-    """队伍：spawn 启动队友 daemon 线程跑 idle loop，完成后发 summary 给 lead。
+    """队伍：spawn 启动队友 daemon 线程跑 WORK→IDLE→SHUTDOWN 自治循环。
 
-    s16：队友不再 max_turns 退出——LLM 返回非 tool_use 后进 idle，轮询 inbox 等
-    shutdown_request（握手关机）或新消息（继续）。turn 顶上 drain inbox 分发协议消息。
-    队友 5 工具（bash/read_file/write_file/send_message/submit_plan）；send_message 的
-    from=队友名（per-spawn 绑定）。无 spawn_teammate → 不能递归组队。max_turns 安全限 +
-    max_idle_polls 兜底防真无限挂（生产 6000=100min；daemon 线程进程退出即杀）。
+    s17：队友 WORK（max_turns 内循环）→ IDLE（idle_poll 轮询 inbox + 任务板，自动认领）→ SHUTDOWN。
+    身份重注入：压缩后 messages 过短（≤3）则重新注入 <identity>。队友 8 工具
+    （bash/read/write/send_message/submit_plan/list_tasks/claim_task/complete_task）；
+    claim_task 绑定 owner=队友名。无 spawn_teammate → 不能递归组队。
     """
 
     def __init__(self, *, client, model, bus: MessageBus, base_handlers: dict,
                  sub_tools: list, trigger: Callable, max_turns: int = 10,
-                 max_tokens: int = 8000, idle_poll_interval: float = 1.0,
-                 max_idle_polls: int = 6000):
+                 max_tokens: int = 8000, idle_poll_interval: float = 5.0,
+                 max_idle_polls: int = 12):
         self.client = client
         self.model = model
         self.bus = bus
@@ -147,10 +148,11 @@ class Team:
         self.max_idle_polls = max_idle_polls
 
     def _make_sub_run_tool(self, name: str) -> Callable:
-        """构造队友分发器：base_handlers + send_message（from 绑定 name）+ submit_plan。"""
+        """构造队友分发器：base_handlers + send_message（from=name）+ submit_plan + claim_task（owner=name）。"""
         handlers = dict(self.base_handlers)
         handlers["send_message"] = lambda to, content: (self.bus.send(name, to, content), "Sent")[1]
         handlers["submit_plan"] = lambda plan: _teammate_submit_plan(name, plan, self.bus)
+        handlers["claim_task"] = lambda task_id: claim_task(task_id, owner=name)
 
         def run_tool(tool_name: str, tool_input: dict) -> str:
             handler = handlers.get(tool_name)
@@ -197,15 +199,29 @@ class Team:
                              "content": f"<inbox>{json.dumps(non_protocol)}</inbox>"})
         return shutdown, bool(non_protocol)
 
-    def _idle_wait(self, name: str, messages: list) -> str:
-        """idle：轮询 inbox 等待 shutdown 或新消息。返 'shutdown'/'message'/'timeout'。"""
+    def idle_poll(self, name: str, messages: list, role: str) -> str:
+        """s17 IDLE：轮询 inbox（优先）+ 任务板（自动认领）。返 'work'/'shutdown'/'timeout'。"""
         for _ in range(self.max_idle_polls):
             time.sleep(self.idle_poll_interval)
+            # ① inbox 优先（shutdown_request / 新消息）
             shutdown, got_msg = self._drain_inbox(name, messages)
             if shutdown:
                 return "shutdown"
             if got_msg:
-                return "message"
+                return "work"
+            # ② 扫任务板自动认领
+            unclaimed = scan_unclaimed_tasks()
+            if unclaimed:
+                task = unclaimed[0]
+                result = claim_task(task["id"], owner=name)
+                if "Claimed" in result:
+                    messages.append({"role": "user",
+                                     "content": f"<auto-claimed>Task {task['id']}: "
+                                                f"{task['subject']}</auto-claimed>"})
+                    print(f"  \033[32m[idle] {name} auto-claimed: {task['subject']}\033[0m")
+                    return "work"
+                print(f"  \033[33m[idle] {name} claim failed: {result}\033[0m")
+        print(f"  \033[31m[idle] {name} timeout\033[0m")
         return "timeout"
 
     def spawn(self, name: str, role: str, prompt: str) -> str:
@@ -219,47 +235,57 @@ class Team:
 
     def _run(self, name: str, role: str, prompt: str) -> None:
         system = (f"You are '{name}', a {role}. Use tools to complete tasks. "
+                  f"You can list and claim tasks from the board. "
                   f"Check inbox for protocol messages (shutdown_request, etc).")
         messages = [{"role": "user", "content": prompt}]
         sub_run_tool = self._make_sub_run_tool(name)
 
         shutdown = False
-        turns = 0
-        while not shutdown and turns < self.max_turns:
-            turns += 1
-            # turn 顶上 drain inbox（协议消息分发 + 非协议注入）
-            shutdown, _ = self._drain_inbox(name, messages)
+        # s17 外循环：WORK → IDLE →（work 则继续 / shutdown·timeout 则退出）
+        while not shutdown:
+            # 身份重注入：压缩后 messages 过短 → 重新注入 <identity>
+            if len(messages) <= 3:
+                messages.insert(0, {"role": "user",
+                                    "content": f"<identity>You are '{name}', role: {role}. "
+                                               f"Continue your work.</identity>"})
+            # WORK phase（内循环，max_turns）
+            turns = 0
+            while turns < self.max_turns:
+                turns += 1
+                shutdown, _ = self._drain_inbox(name, messages)
+                if shutdown:
+                    break
+                try:
+                    response = self.client.messages.create(
+                        model=self.model, system=system, messages=messages[-20:],
+                        tools=self.sub_tools, max_tokens=self.max_tokens)
+                except Exception:
+                    break
+                messages.append({"role": "assistant", "content": response.content})
+                if response.stop_reason != "tool_use":
+                    break  # WORK 结束 → 进 IDLE
+                results = []
+                for block in response.content:
+                    if getattr(block, "type", None) != "tool_use":
+                        continue
+                    blocked = self.trigger("PreToolUse", block)
+                    if blocked:
+                        results.append({"type": "tool_result", "tool_use_id": block.id,
+                                        "content": str(blocked)})
+                        continue
+                    output = sub_run_tool(block.name, block.input)
+                    self.trigger("PostToolUse", block, output)
+                    print(f"  \033[90m[teammate {name}] {block.name}: {str(output)[:100]}\033[0m")
+                    results.append({"type": "tool_result", "tool_use_id": block.id,
+                                    "content": str(output)})
+                messages.append({"role": "user", "content": results})
             if shutdown:
                 break
-            try:
-                response = self.client.messages.create(
-                    model=self.model, system=system, messages=messages[-20:],
-                    tools=self.sub_tools, max_tokens=self.max_tokens)
-            except Exception:
+            # IDLE phase：轮询 inbox + 任务板
+            result = self.idle_poll(name, messages, role)
+            if result in ("shutdown", "timeout"):
                 break
-            messages.append({"role": "assistant", "content": response.content})
-            if response.stop_reason != "tool_use":
-                # idle：等 inbox（shutdown 退出 / 新消息继续 / 超时退出）
-                result = self._idle_wait(name, messages)
-                if result in ("shutdown", "timeout"):
-                    break
-                # "message" → 继续循环（新一轮 LLM turn 带注入消息）
-                continue
-            results = []
-            for block in response.content:
-                if getattr(block, "type", None) != "tool_use":
-                    continue
-                blocked = self.trigger("PreToolUse", block)
-                if blocked:
-                    results.append({"type": "tool_result", "tool_use_id": block.id,
-                                    "content": str(blocked)})
-                    continue
-                output = sub_run_tool(block.name, block.input)
-                self.trigger("PostToolUse", block, output)
-                print(f"  \033[90m[teammate {name}] {block.name}: {str(output)[:100]}\033[0m")
-                results.append({"type": "tool_result", "tool_use_id": block.id,
-                                "content": str(output)})
-            messages.append({"role": "user", "content": results})
+            # "work" → 继续外循环（新 WORK phase 带注入消息）
 
         summary = _extract_last_text(messages) or "Done."
         self.bus.send(name, "lead", summary, "result")
