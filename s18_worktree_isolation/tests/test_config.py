@@ -4,14 +4,15 @@ from s18_worktree_isolation.config import (build_context, build_sub_system_promp
                                       make_tools, make_sub_tools, make_team_tools, prepare_env)
 
 
-def test_make_tools_has_twenty_three_with_protocols():
+def test_make_tools_has_twenty_six_with_worktrees():
     names = [t["name"] for t in make_tools()]
     assert names == ["bash", "read_file", "write_file", "edit_file", "glob",
                      "todo_write", "task", "load_skill", "compact",
                      "create_task", "list_tasks", "get_task", "claim_task", "complete_task",
                      "schedule_cron", "list_crons", "cancel_cron",
                      "spawn_teammate", "send_message", "check_inbox",
-                     "request_shutdown", "request_plan", "review_plan"]
+                     "request_shutdown", "request_plan", "review_plan",
+                     "create_worktree", "remove_worktree", "keep_worktree"]
 
 
 def test_make_sub_tools_has_five():

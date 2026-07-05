@@ -81,6 +81,13 @@ def make_tools() -> list[dict]:
          "input_schema": {"type": "object", "properties": {"teammate": {"type": "string"}, "task": {"type": "string"}}, "required": ["teammate", "task"]}},
         {"name": "review_plan", "description": "Approve or reject a submitted plan by request_id.",
          "input_schema": {"type": "object", "properties": {"request_id": {"type": "string"}, "approve": {"type": "boolean"}, "feedback": {"type": "string"}}, "required": ["request_id", "approve"]}},
+        # s18: worktree 3 工具（create/remove/keep）
+        {"name": "create_worktree", "description": "Create a git worktree with a dedicated branch; optionally bind to a task.",
+         "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "task_id": {"type": "string"}}, "required": ["name"]}},
+        {"name": "remove_worktree", "description": "Remove a worktree. Refuses if uncommitted changes unless discard_changes.",
+         "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "discard_changes": {"type": "boolean"}}, "required": ["name"]}},
+        {"name": "keep_worktree", "description": "Keep a worktree for manual review (branch preserved).",
+         "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
     ]
 
 
