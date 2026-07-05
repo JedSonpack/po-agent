@@ -24,6 +24,7 @@ def main() -> None:
         sub_tools=cfg["sub_tools"], sub_run_tool=make_run_tool(SUB_HANDLERS),
         trigger=trigger_hooks,
     )
+    # 这里也注册一下 子Agent工具，名称为task
     run_tool = make_run_tool(TOOL_HANDLERS, {"task": subagent.run})
     nag = TodoNag()
     print("s06: Subagent — spawn sub-agents with fresh context, summary only")
