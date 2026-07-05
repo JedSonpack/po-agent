@@ -27,7 +27,7 @@
 | s14 | Cron Scheduler | ✅ | [`s14_cron_scheduler/`](s14_cron_scheduler/) | 按时间表触发任务 |
 | s15 | Agent Teams | ✅ | [`s15_agent_teams/`](s15_agent_teams/) | 多 agent 组队协作 |
 | s16 | Team Protocols | ✅ | [`s16_team_protocols/`](s16_team_protocols/) | 队友之间的通信协议 |
-| s17 | Autonomous Agents | ⬜ | `s17_autonomous_agents/` | 自治 agent，自己看板、自己认领 |
+| s17 | Autonomous Agents | ✅ | [`s17_autonomous_agents/`](s17_autonomous_agents/) | 自治 agent，自己看板、自己认领 |
 | s18 | Worktree Isolation | ⬜ | `s18_worktree_isolation/` | git worktree 隔离，并行互不干扰 |
 | s19 | MCP Tools | ⬜ | `s19_mcp_plugin/` | 用 MCP 标准协议外接工具 |
 | s20 | Comprehensive Agent | ⬜ | `s20_comprehensive/` | 全部机制集成到一个循环 |
@@ -148,5 +148,12 @@
 - 计划：[`docs/superpowers/plans/2026-07-05-s16-team-protocols.md`](docs/superpowers/plans/2026-07-05-s16-team-protocols.md)
 - 要点：结构化请求-响应协议（`teams.py`）——`ProtocolState` dataclass + `pending_requests` + `new_request_id` + `match_response`（`request_id` 关联 + 类型校验 + 幂等）；`consume_lead_inbox(route_protocol=True)` 统一消费（`_response` 消息经 match_response 路由，返全部消息，`run_check_inbox` 与 cli wake 都调）；3 lead 协议工具（request_shutdown/request_plan/review_plan）+ `_teammate_submit_plan`（bus 可注入）；`MessageBus.send` 加 metadata；`Team` idle loop——`_handle_inbox_message`（shutdown_request→回复+True / plan_approval_response→注入）、`_drain_inbox`（分离协议/非协议）、`_idle_wait`（shutdown/message/timeout 三态，`idle_poll_interval`/`max_idle_polls` 可注入）、`_run`（`while not shutdown and turns<max_turns`：drain→LLM→非 tool_use 则 idle→执行工具）；cli wake 路径 `BUS.read_inbox`→`consume_lead_inbox`；`agent_loop` 不变
 - 验收：324/324 测试通过（全量 2167）；实时跑通——Lead 调 request_shutdown 发握手请求，alice idle 收到回复 shutdown_response，consume_lead_inbox 经 request_id 路由 → pending_requests 转 approved → `[Inbox]` 注入起 turn
+
+### s17 — Autonomous Agents ✅
+- 目录：[`s17_autonomous_agents/`](s17_autonomous_agents/)（teams / tasks / cron / background / recovery / config / tools / skills / hooks / todo / subagent / compact / memory / system_prompt / agent / cli / __main__ + tests）
+- 规格：[`docs/superpowers/specs/2026-07-05-s17-autonomous-agents-design.md`](docs/superpowers/specs/2026-07-05-s17-autonomous-agents-design.md)
+- 计划：[`docs/superpowers/plans/2026-07-05-s17-autonomous-agents.md`](docs/superpowers/plans/2026-07-05-s17-autonomous-agents.md)
+- 要点：队友自治认领（`tasks.py`+`teams.py`）——`claim_task` 加 owner 检查（`if task.owner: return "already owned"`）；`scan_unclaimed_tasks()`（pending+无 owner+can_start）；`Team.idle_poll(name,messages,role)`（替换 s16 `_idle_wait`：轮询 inbox 优先 + 扫任务板自动认领 → 'work'/'shutdown'/'timeout'）；`_run` 改 WORK→IDLE→SHUTDOWN 外循环（身份重注入 `len(messages)<=3 → insert(0,<identity>)`，WORK 内循环 max_turns，IDLE idle_poll，shutdown/timeout 退出）；`_make_sub_run_tool` 加 claim_task（绑定 owner=name）；队友 +3 工具（list_tasks/claim_task/complete_task，TEAM_HANDLERS+make_team_tools 5→8）；构造默认 idle_poll_interval=5.0/max_idle_polls=12（60s 超时）；`agent_loop`/cli 不变
+- 验收：334/334 测试通过（全量 2501）；实时跑通——Lead 创建任务+spawn alice，alice 自己 list_tasks→claim_task→write_file→complete_task，IDLE 60s 无新任务 → `[idle] timeout` → 发 result 关机 → `[all teammates done]`
 
 > 后续每完成一个阶段，更新对应行的状态（⬜→🚧→✅），并在「已完成阶段详情」补一节。
