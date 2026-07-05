@@ -12,7 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from s18_worktree_isolation.tasks import scan_unclaimed_tasks, claim_task
+from s18_worktree_isolation.tasks import scan_unclaimed_tasks, claim_task, load_task, complete_task
+from s18_worktree_isolation.worktrees import WORKTREES_DIR
 
 WORKDIR = Path.cwd()
 MAILBOX_DIR = WORKDIR / ".mailboxes"
@@ -147,18 +148,60 @@ class Team:
         self.idle_poll_interval = idle_poll_interval
         self.max_idle_polls = max_idle_polls
 
-    def _make_sub_run_tool(self, name: str) -> Callable:
-        """构造队友分发器：base_handlers + send_message（from=name）+ submit_plan + claim_task（owner=name）。"""
+    def _make_sub_run_tool(self, name: str, wt_ctx: dict = None) -> Callable:
+        """构造队友分发器：base_handlers + send_message（from=name）+ submit_plan +
+        claim_task（owner=name + s18 切 wt_ctx）+ complete_task（s18 重置 wt_ctx）。
+        s18：bash/read/write 仅当 wt_ctx 指向 worktree 时注入 cwd（无 worktree 时原样调 base，兼容 stub）。"""
         handlers = dict(self.base_handlers)
+        if wt_ctx is not None:
+            def _cwd():
+                p = wt_ctx.get("path")
+                return Path(p) if p else None
+
+            def _wrap_bash(base):
+                def bash(command, run_in_background=False):
+                    cwd = _cwd()
+                    return base(command, cwd=cwd) if cwd else base(command)
+                return bash
+            base_bash = handlers.get("bash")
+            if base_bash:
+                handlers["bash"] = _wrap_bash(base_bash)
+            base_read = handlers.get("read_file")
+            if base_read:
+                handlers["read_file"] = lambda path, limit=None: (
+                    base_read(path, limit, cwd=_cwd()) if _cwd() else base_read(path, limit))
+            base_write = handlers.get("write_file")
+            if base_write:
+                handlers["write_file"] = lambda path, content: (
+                    base_write(path, content, cwd=_cwd()) if _cwd() else base_write(path, content))
         handlers["send_message"] = lambda to, content: (self.bus.send(name, to, content), "Sent")[1]
         handlers["submit_plan"] = lambda plan: _teammate_submit_plan(name, plan, self.bus)
-        handlers["claim_task"] = lambda task_id: claim_task(task_id, owner=name)
+        handlers["claim_task"] = lambda task_id: self._claim_with_wt(name, task_id, wt_ctx)
+        handlers["complete_task"] = lambda task_id: self._complete_reset_wt(task_id, wt_ctx)
 
         def run_tool(tool_name: str, tool_input: dict) -> str:
             handler = handlers.get(tool_name)
             return handler(**tool_input) if handler else f"Unknown: {tool_name}"
 
         return run_tool
+
+    def _claim_with_wt(self, name: str, task_id: str, wt_ctx: dict) -> str:
+        """claim_task(owner=name)；s18 若任务绑 worktree 且 wt_ctx → 切 cwd。"""
+        result = claim_task(task_id, owner=name)
+        if "Claimed" in result and wt_ctx is not None:
+            try:
+                task = load_task(task_id)
+                wt_ctx["path"] = str(WORKTREES_DIR / task.worktree) if task.worktree else None
+            except Exception:
+                wt_ctx["path"] = None
+        return result
+
+    def _complete_reset_wt(self, task_id: str, wt_ctx: dict) -> str:
+        """complete_task；s18 重置 wt_ctx（回到主工作目录）。"""
+        result = complete_task(task_id)
+        if wt_ctx is not None:
+            wt_ctx["path"] = None
+        return result
 
     def _handle_inbox_message(self, name: str, msg: dict, messages: list) -> bool:
         """按类型分发协议消息。shutdown_request → 回复 shutdown_response + 返 True（停）；
@@ -199,8 +242,9 @@ class Team:
                              "content": f"<inbox>{json.dumps(non_protocol)}</inbox>"})
         return shutdown, bool(non_protocol)
 
-    def idle_poll(self, name: str, messages: list, role: str) -> str:
-        """s17 IDLE：轮询 inbox（优先）+ 任务板（自动认领）。返 'work'/'shutdown'/'timeout'。"""
+    def idle_poll(self, name: str, messages: list, role: str, wt_ctx: dict = None) -> str:
+        """s17 IDLE：轮询 inbox（优先）+ 任务板（自动认领）。返 'work'/'shutdown'/'timeout'。
+        s18：auto-claim 经 _claim_with_wt 切 wt_ctx（绑 worktree 的任务）。"""
         for _ in range(self.max_idle_polls):
             time.sleep(self.idle_poll_interval)
             # ① inbox 优先（shutdown_request / 新消息）
@@ -213,7 +257,7 @@ class Team:
             unclaimed = scan_unclaimed_tasks()
             if unclaimed:
                 task = unclaimed[0]
-                result = claim_task(task["id"], owner=name)
+                result = self._claim_with_wt(name, task["id"], wt_ctx)
                 if "Claimed" in result:
                     messages.append({"role": "user",
                                      "content": f"<auto-claimed>Task {task['id']}: "
@@ -238,7 +282,8 @@ class Team:
                   f"You can list and claim tasks from the board. "
                   f"Check inbox for protocol messages (shutdown_request, etc).")
         messages = [{"role": "user", "content": prompt}]
-        sub_run_tool = self._make_sub_run_tool(name)
+        wt_ctx = {"path": None}  # s18: 当前 worktree cwd（认领绑 wt 的任务时切，complete 时重置）
+        sub_run_tool = self._make_sub_run_tool(name, wt_ctx)
 
         shutdown = False
         # s17 外循环：WORK → IDLE →（work 则继续 / shutdown·timeout 则退出）
@@ -282,7 +327,7 @@ class Team:
             if shutdown:
                 break
             # IDLE phase：轮询 inbox + 任务板
-            result = self.idle_poll(name, messages, role)
+            result = self.idle_poll(name, messages, role, wt_ctx)
             if result in ("shutdown", "timeout"):
                 break
             # "work" → 继续外循环（新 WORK phase 带注入消息）

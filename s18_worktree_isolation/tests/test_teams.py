@@ -695,3 +695,69 @@ def test_run_auto_claim_cycle(tmp_path, monkeypatch):
     lead = team.bus.read_inbox("lead")
     assert lead[-1]["type"] == "result"
     assert "done X" in lead[-1]["content"]
+
+
+# ── s18 新增：wt_ctx（worktree cwd 切换）──
+def test_claim_with_wt_sets_path(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(teams, "claim_task", lambda task_id, owner="agent": f"Claimed {task_id}")
+    monkeypatch.setattr(teams, "load_task", lambda task_id: SimpleNamespace(worktree="auth"))
+    monkeypatch.setattr(teams, "WORKTREES_DIR", tmp_path)
+    team = _team(tmp_path, FakeClient([]))
+    wt_ctx = {"path": None}
+    team._claim_with_wt("alice", "task_1", wt_ctx)
+    assert wt_ctx["path"] == str(tmp_path / "auth")
+
+
+def test_claim_with_wt_no_worktree_resets(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(teams, "claim_task", lambda task_id, owner="agent": f"Claimed {task_id}")
+    monkeypatch.setattr(teams, "load_task", lambda task_id: SimpleNamespace(worktree=None))
+    team = _team(tmp_path, FakeClient([]))
+    wt_ctx = {"path": "/old"}
+    team._claim_with_wt("alice", "task_1", wt_ctx)
+    assert wt_ctx["path"] is None
+
+
+def test_complete_reset_wt(tmp_path, monkeypatch):
+    monkeypatch.setattr(teams, "complete_task", lambda task_id: "Completed")
+    team = _team(tmp_path, FakeClient([]))
+    wt_ctx = {"path": str(tmp_path / "auth")}
+    team._complete_reset_wt("task_1", wt_ctx)
+    assert wt_ctx["path"] is None
+
+
+def test_sub_run_tool_bash_uses_wt_cwd(tmp_path, monkeypatch):
+    monkeypatch.setattr(teams, "WORKTREES_DIR", tmp_path)
+    calls = []
+    team = Team(client=FakeClient([]), model="m", bus=MessageBus(mailbox_dir=tmp_path),
+                base_handlers={"bash": lambda command, cwd=None: calls.append(("bash", command, cwd)) or "OUT"},
+                sub_tools=[], trigger=lambda ev, *a: None,
+                idle_poll_interval=0.01, max_idle_polls=2)
+    wt_ctx = {"path": str(tmp_path / "auth")}
+    run_tool = team._make_sub_run_tool("alice", wt_ctx)
+    run_tool("bash", {"command": "pwd"})
+    assert calls[0][2] == tmp_path / "auth"  # cwd 注入
+
+
+def test_sub_run_tool_bash_no_wt_calls_base_plain(tmp_path):
+    """无 worktree（wt_ctx path=None）→ 原样调 base（兼容不接受 cwd 的 stub）。"""
+    team = Team(client=FakeClient([]), model="m", bus=MessageBus(mailbox_dir=tmp_path),
+                base_handlers={"bash": lambda command: "no-cwd-ok"},
+                sub_tools=[], trigger=lambda ev, *a: None,
+                idle_poll_interval=0.01, max_idle_polls=2)
+    run_tool = team._make_sub_run_tool("alice", {"path": None})
+    assert run_tool("bash", {"command": "ls"}) == "no-cwd-ok"
+
+
+def test_idle_poll_auto_claim_sets_wt_ctx(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(teams, "scan_unclaimed_tasks",
+                        lambda: [{"id": "task_1", "subject": "do X"}])
+    monkeypatch.setattr(teams, "claim_task", lambda task_id, owner="agent": f"Claimed {task_id}")
+    monkeypatch.setattr(teams, "load_task", lambda task_id: SimpleNamespace(worktree="auth"))
+    monkeypatch.setattr(teams, "WORKTREES_DIR", tmp_path)
+    team = _team(tmp_path, FakeClient([]), max_idle_polls=5)
+    wt_ctx = {"path": None}
+    assert team.idle_poll("alice", [], "dev", wt_ctx) == "work"
+    assert wt_ctx["path"] == str(tmp_path / "auth")
