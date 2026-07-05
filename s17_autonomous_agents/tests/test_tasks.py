@@ -4,6 +4,7 @@ import pytest
 from s17_autonomous_agents import tasks
 from s17_autonomous_agents.tasks import (Task, create_task, save_task, load_task, list_tasks,
                                    get_task, can_start, claim_task, complete_task,
+                                   scan_unclaimed_tasks,
                                    run_create_task, run_list_tasks, run_get_task,
                                    run_claim_task, run_complete_task)
 
@@ -195,3 +196,63 @@ def test_persistence_across_session(td):
     t = create_task("x")
     # 模拟新进程：重新 list
     assert any(tt.id == t.id for tt in list_tasks())
+
+
+# ── s17 新增：claim owner 检查 + scan_unclaimed_tasks ──
+def test_claim_rejects_already_owned(td):
+    """owner 检查：status=pending 但已设 owner（竞态窗口）→ 拒绝。"""
+    t = create_task("x")
+    # 模拟竞态：手动设 owner 但保持 pending（claim 正常会同时设 in_progress）
+    task = load_task(t.id)
+    task.owner = "alice"
+    save_task(task)
+    result = claim_task(t.id, owner="bob")
+    assert "already owned" in result and "alice" in result
+    assert load_task(t.id).owner == "alice"  # 未被 bob 覆盖
+
+
+def test_claim_normal_flow_sets_in_progress(td):
+    """正常 claim 后 status=in_progress；再次 claim 走 status 检查（非 owner 检查）。"""
+    t = create_task("x")
+    assert claim_task(t.id, owner="alice") == f"Claimed {t.id} (x)"
+    result = claim_task(t.id, owner="bob")
+    assert "in_progress" in result  # status 检查先于 owner
+
+
+def test_scan_unclaimed_returns_pending_unowned_startable(td):
+    t = create_task("do A")
+    unclaimed = scan_unclaimed_tasks()
+    assert len(unclaimed) == 1
+    assert unclaimed[0]["id"] == t.id
+    assert unclaimed[0]["status"] == "pending"
+
+
+def test_scan_excludes_owned(td):
+    t = create_task("do A")
+    claim_task(t.id, owner="alice")
+    assert scan_unclaimed_tasks() == []
+
+
+def test_scan_excludes_in_progress_and_completed(td):
+    t1 = create_task("a")
+    t2 = create_task("b")
+    claim_task(t1.id, owner="alice")  # → in_progress
+    complete_task(t1.id)              # → completed
+    claim_task(t2.id, owner="bob")    # → in_progress
+    assert scan_unclaimed_tasks() == []
+
+
+def test_scan_excludes_blocked(td):
+    t1 = create_task("prereq")
+    t2 = create_task("dependent", blockedBy=[t1.id])  # t1 未完成 → blocked
+    unclaimed = scan_unclaimed_tasks()
+    assert [t["id"] for t in unclaimed] == [t1.id]  # 只 t1 可认领
+
+
+def test_scan_includes_unblocked_after_dep_completes(td):
+    t1 = create_task("prereq")
+    t2 = create_task("dependent", blockedBy=[t1.id])
+    claim_task(t1.id, owner="alice")
+    complete_task(t1.id)  # t1 完成 → t2 解锁
+    unclaimed = scan_unclaimed_tasks()
+    assert [t["id"] for t in unclaimed] == [t2.id]

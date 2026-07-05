@@ -69,6 +69,8 @@ def claim_task(task_id: str, owner: str = "agent") -> str:
     task = load_task(task_id)
     if task.status != "pending":
         return f"Task {task_id} is {task.status}, cannot claim"
+    if task.owner:  # s17: owner 检查——拒绝已认领（并发认领的最简保护）
+        return f"Task {task_id} already owned by {task.owner}"
     if not can_start(task_id):
         deps = [d for d in task.blockedBy
                 if not _task_path(d).exists() or load_task(d).status != "completed"]
@@ -77,6 +79,18 @@ def claim_task(task_id: str, owner: str = "agent") -> str:
     task.status = "in_progress"
     save_task(task)
     return f"Claimed {task.id} ({task.subject})"
+
+
+def scan_unclaimed_tasks() -> list:
+    """s17: 扫可认领任务——pending + 无 owner + can_start（按文件名排序）。"""
+    unclaimed = []
+    for p in sorted(TASKS_DIR.glob("task_*.json")):
+        task = json.loads(p.read_text())
+        if (task.get("status") == "pending"
+                and not task.get("owner")
+                and can_start(task["id"])):
+            unclaimed.append(task)
+    return unclaimed
 
 
 def complete_task(task_id: str) -> str:
