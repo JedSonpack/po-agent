@@ -18,7 +18,7 @@ _last_prompt = None
 
 
 def assemble_system_prompt(context: dict) -> str:
-    """按真实状态选段拼接。memory 段仅索引非空时加入。"""
+    """按真实状态选段拼接。memory/mcp 段仅非空时加入。"""
     sections = [
         PROMPT_SECTIONS["identity"],
         PROMPT_SECTIONS["tools"].format(tools=", ".join(context.get("tools", []))),
@@ -27,6 +27,9 @@ def assemble_system_prompt(context: dict) -> str:
     ]
     if context.get("memories"):
         sections.append(context["memories"])
+    mcp_servers = context.get("mcp_servers") or []  # s20: 已连接 MCP server 段
+    if mcp_servers:
+        sections.append(f"Connected MCP servers: {', '.join(mcp_servers)}")
     return "\n\n".join(sections)
 
 
@@ -42,16 +45,19 @@ def get_system_prompt(context: dict) -> str:
     loaded = ["identity", "tools", "workspace", "skills"]
     if context.get("memories"):
         loaded.append("memory")
+    if context.get("mcp_servers"):
+        loaded.append("mcp")
     print(f"  \033[32m[assembled] sections: {', '.join(loaded)}\033[0m")
     return _last_prompt
 
 
-def build_context(*, cwd, tools, skills_catalog, memories="") -> dict:
-    """从组件构造 context。tools 接收 dict 列表或名字列表，统一存名字。"""
+def build_context(*, cwd, tools, skills_catalog, memories="", mcp_servers=None) -> dict:
+    """从组件构造 context。tools 接收 dict 列表或名字列表，统一存名字。s20 加 mcp_servers。"""
     if tools and isinstance(tools[0], dict):
         tools = [t["name"] for t in tools]
     return {"cwd": str(cwd), "tools": list(tools),
-            "skills_catalog": skills_catalog, "memories": memories}
+            "skills_catalog": skills_catalog, "memories": memories,
+            "mcp_servers": list(mcp_servers) if mcp_servers else []}
 
 
 def reset_cache() -> None:

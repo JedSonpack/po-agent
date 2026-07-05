@@ -93,3 +93,44 @@ def test_reset_cache_clears_slot():
     reset_cache()
     assert sp._last_context_key is None
     assert sp._last_prompt is None
+
+
+# ── s20 新增：mcp_servers 段 ──
+def test_assemble_includes_mcp_servers_when_present():
+    ctx = {"cwd": "/w", "tools": ["bash"], "skills_catalog": "c", "memories": "",
+           "mcp_servers": ["docs", "deploy"]}
+    prompt = assemble_system_prompt(ctx)
+    assert "Connected MCP servers: docs, deploy" in prompt
+
+
+def test_assemble_omits_mcp_servers_when_empty():
+    ctx = {"cwd": "/w", "tools": ["bash"], "skills_catalog": "c", "memories": "",
+           "mcp_servers": []}
+    assert "Connected MCP servers" not in assemble_system_prompt(ctx)
+
+
+def test_assemble_omits_mcp_servers_when_absent():
+    ctx = {"cwd": "/w", "tools": ["bash"], "skills_catalog": "c", "memories": ""}
+    assert "Connected MCP servers" not in assemble_system_prompt(ctx)
+
+
+def test_build_context_includes_mcp_servers():
+    ctx = build_context(cwd="/w", tools=["bash"], skills_catalog="c", mcp_servers=["docs"])
+    assert ctx["mcp_servers"] == ["docs"]
+
+
+def test_build_context_default_mcp_servers_empty():
+    ctx = build_context(cwd="/w", tools=["bash"], skills_catalog="c")
+    assert ctx["mcp_servers"] == []
+
+
+def test_cache_invalidates_when_mcp_servers_change():
+    reset_cache()
+    ctx1 = {"cwd": "/w", "tools": ["bash"], "skills_catalog": "c", "memories": "", "mcp_servers": []}
+    ctx2 = {"cwd": "/w", "tools": ["bash"], "skills_catalog": "c", "memories": "", "mcp_servers": ["docs"]}
+    get_system_prompt(ctx1)
+    p1 = get_system_prompt(ctx1)  # cache hit
+    p2 = get_system_prompt(ctx2)  # cache miss (mcp_servers 变)
+    assert "Connected MCP servers" not in p1
+    assert "Connected MCP servers: docs" in p2
+    reset_cache()
