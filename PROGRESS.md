@@ -25,7 +25,7 @@
 | s12 | Task System | ✅ | [`s12_task_system/`](s12_task_system/) | 大目标拆成可追踪的小任务 |
 | s13 | Background Tasks | ✅ | [`s13_background_tasks/`](s13_background_tasks/) | 慢操作放后台执行 |
 | s14 | Cron Scheduler | ✅ | [`s14_cron_scheduler/`](s14_cron_scheduler/) | 按时间表触发任务 |
-| s15 | Agent Teams | ⬜ | `s15_agent_teams/` | 多 agent 组队协作 |
+| s15 | Agent Teams | ✅ | [`s15_agent_teams/`](s15_agent_teams/) | 多 agent 组队协作 |
 | s16 | Team Protocols | ⬜ | `s16_team_protocols/` | 队友之间的通信协议 |
 | s17 | Autonomous Agents | ⬜ | `s17_autonomous_agents/` | 自治 agent，自己看板、自己认领 |
 | s18 | Worktree Isolation | ⬜ | `s18_worktree_isolation/` | git worktree 隔离，并行互不干扰 |
@@ -134,5 +134,12 @@
 - 验收：263/263 测试通过（全量 1552）；实时跑通——`schedule_cron` 注册 → `[cron fire]` 调度线程触发 → agent 消费 `[Scheduled]` 执行提示词
 
 ---
+
+### s15 — Agent Teams ✅
+- 目录：[`s15_agent_teams/`](s15_agent_teams/)（teams / background / cron / tasks / recovery / config / tools / skills / hooks / todo / subagent / compact / memory / system_prompt / agent / cli / __main__ + tests）
+- 规格：[`docs/superpowers/specs/2026-07-05-s15-agent-teams-design.md`](docs/superpowers/specs/2026-07-05-s15-agent-teams-design.md)
+- 计划：[`docs/superpowers/plans/2026-07-05-s15-agent-teams.md`](docs/superpowers/plans/2026-07-05-s15-agent-teams.md)
+- 要点：多 agent 组队异步协作（`teams.py`）——`MessageBus`（`.mailboxes/{agent}.jsonl`，send/read_inbox 消费式/peek 非消费式，`mailbox_dir` 可注入）；`Team` 类（DI）`spawn` 起 daemon 线程跑 `_run`（4 工具 bash/read/write/send_message，max 10 轮，每轮顶上注入 `<inbox>`，`messages[-20:]` 滑动窗口，完成后倒序取 assistant text 作 summary 发 `result` 给 lead + pop `active_teammates`，send_message `from`=队友名 per-spawn 绑定，无 spawn_teammate 防组队递归）；3 lead 工具（spawn_teammate=team.spawn 经 `extra` 接线 / send_message from=lead / check_inbox 消费 lead 邮箱）；`background.py` 加 `has_pending_background`（非消费式）；cli 重构为事件队列（input_reader + inbox_poller 1s `BUS.peek("lead") or has_pending_background()` → wake，wake 排干 inbox+后台通知拼 `[Inbox]` 注入起 turn，"all teammates done" 公告）；`run_turn(query=None,inject=None)` 不持锁，main 与 cron queue_processor 经 `agent_lock` 串行（s14 cron 机制不变）；`agent_loop` 不变
+- 验收：291/291 测试通过（全量 1843）；实时跑通——Lead 调 spawn_teammate 起 alice 线程，alice 后台跑 LLM+write_file 创建 schema.sql，完成发 result 到 lead 邮箱，inbox_poller wake Lead 注入 `[Inbox]`，Lead 总结 alice 结果，`[all teammates done]` 公告
 
 > 后续每完成一个阶段，更新对应行的状态（⬜→🚧→✅），并在「已完成阶段详情」补一节。

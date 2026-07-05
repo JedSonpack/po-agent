@@ -1,33 +1,28 @@
-# s15: Cron Scheduler
+# s15: Agent Teams
 
-po-agent 第十四阶段，参照 `learn-claude-code/s15_agent_teams`。加**闹钟**：设 cron 表达式，到点调度线程把任务塞进 `cron_queue`，agent 消费并执行。把"触发"与"执行"解耦——独立 daemon 判时间，队列传递，queue processor 在 agent 空闲时拉起一轮 turn。
+po-agent 第十五阶段，参照 `learn-claude-code/s15_agent_teams`。加**队友**：Lead 调 `spawn_teammate` 启动 daemon 线程队友，各自跑简化循环，经文件收件箱（`.mailboxes/*.jsonl`）异步通信。把"一次性子 agent"升级成"多轮通信队友"——Lead 收件箱有消息就 wake 一轮 turn 注入 `[Inbox]`。
 
-## 本阶段完成（相对 s13）
+## 本阶段完成（相对 s14）
 
-在 s13 循环上做了一件核心事：**按时间表自动触发**。
+在 s14 循环上做了一件核心事：**多 agent 组队异步协作**。
 
-1. **`cron.py`**：
-   - **`CronJob`** dataclass（id/cron/prompt/recurring/durable）。
-   - **`cron_matches`/`_cron_field_matches`**：5 字段（`*`/`*/N`/`N-M`/`N,M`/`N`）；DOW 换算 `(weekday+1)%7`（Sun=0）；**DOM/DOW OR 语义**（都约束时任一匹配即真）。
-   - **`validate_cron`/`_validate_cron_field`**：字段数/界内/step>0/range/非数字校验。
-   - **`schedule_job`/`cancel_job`**：注册/删除 + durable 持久化。
-   - **`save_durable_jobs`/`load_durable_jobs`**：`.scheduled_tasks.json`，load 时跳过非法 cron。
-   - **`_check_and_fire(now)`**（纯函数）：fire 匹配 job，`minute_marker="%Y-%m-%d %H:%M"` 去重（日期感知，防次日跳过），one-shot fire 后删除，recurring 保留。
-   - **`cron_scheduler_loop`**（daemon，每秒轮询）+ **`queue_processor_loop`**（agent 空闲 `agent_lock` 可获取时拉起 turn）+ **`agent_lock`**。
-   - **`start_scheduler(run_turn)`** 显式启动两个 daemon（**po-agent 改进**：参考在 import 时起线程不可测，po-agent 放 cli 调用）。
-   - **3 工具**：run_schedule_cron/run_list_crons/run_cancel_cron。
-2. **`agent_loop` 顶部消费 cron 队列**：每轮迭代 `consume_cron_queue()` → 每个 fired job 注入 `{"role":"user","content":"[Scheduled] {prompt}"}`。
-3. **cli `run_turn` 闭包 + `start_scheduler` + `agent_lock`**：用户 turn 与 queue_processor 互斥；agent 空闲时 cron 可触发新 turn。
-- **保留 s13 全部**（background + tasks + recovery + 段落化 system prompt + hooks/nag/compact/memory/skills/subagent/14 工具）。3 工具进 `TOOL_HANDLERS`+`make_tools`（17）。
-- 比 s13 多了**定时自动触发**：到点 agent 自己动，无需人推。
+1. **`teams.py`**：
+   - **`MessageBus`**：文件收件箱（`.mailboxes/{agent}.jsonl`）；`send`=append、`read_inbox`=读+unlink（消费式）、`peek`=非消费式（inbox_poller wake 条件）。`mailbox_dir` 可注入（测试用 tmp_path）。
+   - **`Team` 类**（DI：client/model/bus/base_handlers/sub_tools/trigger）：`spawn(name,role,prompt)` 起 daemon 线程跑 `_run`——4 工具（bash/read/write/send_message），max 10 轮，每轮顶上注入 `<inbox>`，`messages[-20:]` 滑动窗口，完成后倒序取 assistant text 作 summary 发 `result` 给 lead + pop `active_teammates`。`send_message` 的 `from`=队友名（per-spawn 绑定）；无 spawn_teammate 防组队递归。
+   - **3 lead 工具**：`run_send_message`（from 固定 lead）/`run_check_inbox`（消费 lead 邮箱）/`spawn_teammate`（=team.spawn，cli 经 `make_run_tool` 的 `extra` 接线）。
+2. **`background.py`** 加 `has_pending_background()`（非消费式，inbox_poller wake 条件）。
+3. **`cli.py` 重构为事件队列**：input_reader + inbox_poller（1s，`BUS.peek("lead") or has_pending_background()` → wake）；wake 排干 lead inbox + 后台通知，拼 `[Inbox]` 注入 history 起一轮 turn；"all teammates done" 公告。`run_turn(query=None,inject=None)` 不持锁，main 与 cron queue_processor 经 `agent_lock` 串行（s14 cron 机制不变）。
+- **保留 s14 全部**（cron + background + tasks + recovery + 段落化 system prompt + hooks/nag/compact/memory/skills/subagent）。3 工具进 `TOOL_HANDLERS`+`make_tools`（20）；新增 `make_team_tools`（4）。`agent_loop` 不变。
+- 比 s14 多了**异步队友通信**：队友在后台线程干活、随时通过文件邮箱汇报，Lead 收件箱有消息就自动 wake。
 
 ## 结构
-- `cron.py` — CronJob + 匹配/校验 + schedule/cancel + 持久化 + _check_and_fire + scheduler/queue processor + agent_lock + 3 run_*
-- `agent.py` — `agent_loop`（顶部消费 cron 队列）
-- `config.py` — make_tools 加 3 cron 工具（17）
-- `tools.py` — TOOL_HANDLERS 加 3 cron handler
-- `cli.py` — run_turn 闭包 + start_scheduler + agent_lock
-- `background.py` / `tasks.py` / `recovery.py` / `system_prompt.py` / `skills.py` / `hooks.py` / `todo.py` / `subagent.py` / `compact.py` / `memory.py` — 同 s13
+- `teams.py` — MessageBus + Team 类 + 3 lead handler
+- `agent.py` — `agent_loop`（不变；团队工具经 run_tool 分发，inbox 注入在 cli 层）
+- `background.py` — 加 `has_pending_background`
+- `config.py` — make_tools 加 3 团队工具（20）+ make_team_tools（4）
+- `tools.py` — TOOL_HANDLERS 加 send_message/check_inbox + TEAM_HANDLERS
+- `cli.py` — 事件队列 + inbox_poller + wake 注入 + Team 接线
+- `cron.py` / `tasks.py` / `recovery.py` / `system_prompt.py` / `skills.py` / `hooks.py` / `todo.py` / `subagent.py` / `compact.py` / `memory.py` — 同 s14
 
 ## 运行
 ```sh
@@ -38,15 +33,16 @@ python -m s15_agent_teams
 ## 使用示例
 
 ```
-s15 >> 用 schedule_cron 安排每分钟任务"检查进度"，然后列出所有 cron 任务
-  [assembled] sections: identity, tools, workspace, skills
-  [HOOK] schedule_cron(['* * * * *', '检查进度'])
-  [cron fire] cron_714647 → 检查进度
-  [HOOK] list_crons([])
-  ...
+s15 >> Spawn alice as a backend developer. Ask her to create schema.sql with a users table.
+  [teammate] alice spawned as backend developer
+  [bus] alice → lead: CREATE TABLE users (...)   ← alice 在后台线程干活、汇报
+  [teammate] alice finished
+  [wake: 1 inbox + 0 background → new turn]      ← inbox_poller 触发 wake
+  Alice has completed her task! ...               ← Lead 收到 alice 结果并总结
+  [all teammates done]
 ```
 
-agent 调 schedule_cron 注册任务，调度线程到点 `[cron fire]`，agent 消费 `[Scheduled]` 消息并执行提示词。重启后 `load_durable_jobs` 恢复 durable 任务。
+Lead 调 spawn_teammate 起 alice 线程，alice 自己跑 LLM + write_file，完成后发 result 到 lead 邮箱；inbox_poller 检测到 → wake Lead 注入 `[Inbox]` 起一轮 turn。
 
 ## 测试
 ```sh
