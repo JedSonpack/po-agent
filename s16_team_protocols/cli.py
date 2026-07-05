@@ -27,7 +27,7 @@ from s16_team_protocols.subagent import Subagent
 from s16_team_protocols.compact import Compactor
 from s16_team_protocols.memory import Memory
 from s16_team_protocols.cron import start_scheduler, agent_lock
-from s16_team_protocols.teams import Team, BUS, active_teammates
+from s16_team_protocols.teams import Team, BUS, active_teammates, consume_lead_inbox
 from s16_team_protocols.background import has_pending_background, collect_background_results
 
 
@@ -104,7 +104,8 @@ def main() -> None:
                 run_turn(query=payload)
         else:  # wake: 队友 inbox 或后台完成
             parts = []
-            inbox = BUS.read_inbox("lead")
+            # s16: consume_lead_inbox 路由协议响应（match_response）后返全部消息
+            inbox = consume_lead_inbox(route_protocol=True)
             if inbox:
                 parts.append("[Inbox]\n" + "\n".join(
                     f"From {m['from']}: {m['content'][:200]}" for m in inbox))
