@@ -101,8 +101,8 @@ def make_sub_tools() -> list[dict]:
 
 
 def make_team_tools() -> list[dict]:
-    # 队友 5 工具（无 edit/glob/todo/task/spawn_teammate——聚焦通信，防递归组队）
-    # bash 无 run_in_background（队友不派后台）；s16 加 submit_plan
+    # 队友 8 工具（无 edit/glob/todo/task/spawn_teammate——聚焦通信+自治，防递归组队）
+    # bash 无 run_in_background；s16 加 submit_plan；s17 加 list_tasks/claim_task/complete_task
     return [
         {"name": "bash", "description": "Run a shell command.",
          "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
@@ -114,6 +114,12 @@ def make_team_tools() -> list[dict]:
          "input_schema": {"type": "object", "properties": {"to": {"type": "string"}, "content": {"type": "string"}}, "required": ["to", "content"]}},
         {"name": "submit_plan", "description": "Submit a plan for Lead approval.",
          "input_schema": {"type": "object", "properties": {"plan": {"type": "string"}}, "required": ["plan"]}},
+        {"name": "list_tasks", "description": "List all tasks on the board.",
+         "input_schema": {"type": "object", "properties": {}, "required": []}},
+        {"name": "claim_task", "description": "Claim a pending task by ID. Sets owner, changes status to in_progress.",
+         "input_schema": {"type": "object", "properties": {"task_id": {"type": "string"}}, "required": ["task_id"]}},
+        {"name": "complete_task", "description": "Complete an in-progress task by ID.",
+         "input_schema": {"type": "object", "properties": {"task_id": {"type": "string"}}, "required": ["task_id"]}},
     ]
 
 

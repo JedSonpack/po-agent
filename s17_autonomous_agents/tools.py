@@ -137,8 +137,11 @@ TOOL_HANDLERS = {"bash": run_bash, "read_file": run_read, "write_file": run_writ
 SUB_HANDLERS = {"bash": run_bash, "read_file": run_read, "write_file": run_write,
                 "edit_file": run_edit, "glob": run_glob}
 
-# s15: 队友 base handler（bash/read/write；send_message 由 Team 按名绑定 from）
-TEAM_HANDLERS = {"bash": run_bash, "read_file": run_read, "write_file": run_write}
+# s15/s17: 队友 base handler（bash/read/write + s17 任务工具；send_message 由 Team 按名绑定 from，
+# claim_task 由 Team._make_sub_run_tool 重绑 owner=队友名）
+TEAM_HANDLERS = {"bash": run_bash, "read_file": run_read, "write_file": run_write,
+                 "list_tasks": run_list_tasks, "claim_task": run_claim_task,
+                 "complete_task": run_complete_task}
 
 
 def make_run_tool(handlers: dict, extra: dict | None = None) -> Callable:

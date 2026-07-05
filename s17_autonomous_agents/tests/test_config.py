@@ -18,9 +18,10 @@ def test_make_sub_tools_has_five():
     assert [t["name"] for t in make_sub_tools()] == ["bash", "read_file", "write_file", "edit_file", "glob"]
 
 
-def test_make_team_tools_has_five_with_submit_plan():
+def test_make_team_tools_has_eight_with_task_tools():
     names = [t["name"] for t in make_team_tools()]
-    assert names == ["bash", "read_file", "write_file", "send_message", "submit_plan"]
+    assert names == ["bash", "read_file", "write_file", "send_message", "submit_plan",
+                     "list_tasks", "claim_task", "complete_task"]
 
 
 def test_team_bash_has_no_run_in_background():
