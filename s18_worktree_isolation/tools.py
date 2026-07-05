@@ -11,6 +11,8 @@ from s18_worktree_isolation.tasks import (run_create_task, run_list_tasks, run_g
 from s18_worktree_isolation.cron import run_schedule_cron, run_list_crons, run_cancel_cron
 from s18_worktree_isolation.teams import (run_send_message, run_check_inbox,
                                    run_request_shutdown, run_request_plan, run_review_plan)
+from s18_worktree_isolation.worktrees import (run_create_worktree, run_remove_worktree,
+                                          run_keep_worktree)
 
 WORKDIR = Path.cwd()
 TIMEOUT = 120
@@ -19,11 +21,12 @@ MAX_OUTPUT = 50000
 CURRENT_TODOS: list[dict] = []
 
 
-def run_bash(command: str, run_in_background: bool = False) -> str:
+def run_bash(command: str, run_in_background: bool = False, cwd=None) -> str:
     # s04：危险检查在 permission_hook（PreToolUse），这里只执行
     # s13：run_in_background 由 agent_loop dispatch 层判断，此处忽略
+    # s18：cwd=worktree 路径时在该目录执行（队友 wt_ctx）
     try:
-        r = subprocess.run(command, shell=True, cwd=WORKDIR,
+        r = subprocess.run(command, shell=True, cwd=cwd or WORKDIR,
                            capture_output=True, text=True, timeout=TIMEOUT)
         out = (r.stdout + r.stderr).strip()
         return out[:MAX_OUTPUT] if out else "(no output)"
@@ -31,16 +34,17 @@ def run_bash(command: str, run_in_background: bool = False) -> str:
         return "Error: Timeout (120s)"
 
 
-def safe_path(p: str) -> Path:
-    path = (WORKDIR / p).resolve()
-    if not path.is_relative_to(WORKDIR):
+def safe_path(p: str, cwd=None) -> Path:
+    base = cwd or WORKDIR
+    path = (base / p).resolve()
+    if not path.is_relative_to(base):
         raise ValueError(f"Path escapes workspace: {p}")
     return path
 
 
-def run_read(path: str, limit: int | None = None) -> str:
+def run_read(path: str, limit: int | None = None, cwd=None) -> str:
     try:
-        lines = safe_path(path).read_text().splitlines()
+        lines = safe_path(path, cwd).read_text().splitlines()
         if limit and limit < len(lines):
             lines = lines[:limit] + [f"... ({len(lines) - limit} more lines)"]
         return "\n".join(lines)
@@ -48,9 +52,9 @@ def run_read(path: str, limit: int | None = None) -> str:
         return f"Error: {e}"
 
 
-def run_write(path: str, content: str) -> str:
+def run_write(path: str, content: str, cwd=None) -> str:
     try:
-        file_path = safe_path(path)
+        file_path = safe_path(path, cwd)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content)
         return f"Wrote {len(content)} bytes to {path}"
@@ -131,7 +135,10 @@ TOOL_HANDLERS = {"bash": run_bash, "read_file": run_read, "write_file": run_writ
                  "send_message": run_send_message, "check_inbox": run_check_inbox,
                  # s16: 协议 3 工具（request_shutdown/request_plan/review_plan）
                  "request_shutdown": run_request_shutdown, "request_plan": run_request_plan,
-                 "review_plan": run_review_plan}
+                 "review_plan": run_review_plan,
+                 # s18: worktree 3 工具
+                 "create_worktree": run_create_worktree, "remove_worktree": run_remove_worktree,
+                 "keep_worktree": run_keep_worktree}
 
 # s06: 子 agent 用 5 工具（无 todo_write 无 task 无 load_skill，防递归）
 SUB_HANDLERS = {"bash": run_bash, "read_file": run_read, "write_file": run_write,

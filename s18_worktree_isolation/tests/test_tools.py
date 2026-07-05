@@ -237,3 +237,31 @@ def test_tool_handlers_has_three_cron_tools():
 def test_run_tool_dispatch_list_crons():
     out = run_tool("list_crons", {})
     assert "Unknown" not in out  # 分发生效
+
+
+# ── s18 新增：cwd 参数（worktree 隔离）──
+def test_safe_path_with_cwd(tmp_path):
+    from s18_worktree_isolation.tools import safe_path
+    (tmp_path / "sub").mkdir()
+    p = safe_path("sub/file.txt", cwd=tmp_path)
+    assert p == (tmp_path / "sub" / "file.txt").resolve()
+
+
+def test_safe_path_cwd_escape_rejected(tmp_path):
+    from s18_worktree_isolation.tools import safe_path
+    import pytest as _pytest
+    with _pytest.raises(ValueError):
+        safe_path("../../escape", cwd=tmp_path)
+
+
+def test_run_bash_with_cwd(tmp_path):
+    from s18_worktree_isolation.tools import run_bash
+    out = run_bash("pwd", cwd=tmp_path)
+    assert str(tmp_path) in out
+
+
+def test_run_write_read_with_cwd(tmp_path):
+    from s18_worktree_isolation.tools import run_write, run_read
+    assert "Wrote" in run_write("hi.txt", "hello", cwd=tmp_path)
+    assert run_read("hi.txt", cwd=tmp_path) == "hello"
+    assert (tmp_path / "hi.txt").exists()
