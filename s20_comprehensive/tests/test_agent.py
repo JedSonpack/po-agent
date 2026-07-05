@@ -599,3 +599,41 @@ def test_tool_pool_refreshes_each_turn():
     all_text = " ".join(str(m.get("content", "")) for m in msgs)
     assert "Found 3 results for 'auth'" in all_text
     mcp_clients.clear()
+
+
+# ── s20 新增：tool_pool 提供时 system prompt 含 MCP 段 ──
+def test_system_prompt_includes_mcp_after_connect():
+    from s19_mcp_plugin.mcp import ToolPool, mcp_clients  # noqa  (s20 alias)
+    from s20_comprehensive.mcp import ToolPool as TP20, mcp_clients as mc20
+
+    pool = TP20(
+        [{"name": "bash", "input_schema": {}},
+         {"name": "connect_mcp", "input_schema": {}}],
+        {"bash": lambda command: "OUT",
+         "connect_mcp": __import__("s20_comprehensive.mcp", fromlist=["connect_mcp"]).connect_mcp})
+
+    captured = []
+
+    class CapClient:
+        def __init__(self, responses):
+            self._r = list(responses)
+
+        @property
+        def messages(self):
+            return self
+
+        def create(self, **kw):
+            captured.append(kw.get("system", ""))
+            return self._r.pop(0)
+
+    client = CapClient([
+        make_response([tool_use_block("t1", "connect_mcp", {"name": "docs"})], "tool_use"),
+        make_response([text_block("done")], "end_turn"),
+    ])
+    msgs = [{"role": "user", "content": "x"}]
+    agent_loop(client=client, model="m", context=ctx(), tools=[], messages=msgs,
+               run_tool=pool.run_tool, trigger=lambda ev, *a: None, tool_pool=pool)
+    # 第一轮 system 无 MCP 段；connect_mcp 后第二轮含
+    assert "Connected MCP servers" not in captured[0]
+    assert "Connected MCP servers: docs" in captured[1]
+    mc20.clear()

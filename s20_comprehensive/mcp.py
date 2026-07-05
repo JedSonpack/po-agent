@@ -118,6 +118,11 @@ class ToolPool:
                 })
         return tools
 
+    @property
+    def connected_servers(self) -> list:
+        """s20: 已连接 MCP server 名列表（注入 system prompt）。"""
+        return list(mcp_clients.keys())
+
     def run_tool(self, name: str, input: dict) -> str:
         h = dict(self.builtin_handlers)
         h.update(self.extra)

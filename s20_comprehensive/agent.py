@@ -46,6 +46,7 @@ def agent_loop(*, client, model, context, tools, messages, run_tool,
             tools=tools,
             skills_catalog=context.get("skills_catalog", ""),
             memories=(memory.build_index_section().strip() if memory else ""),
+            mcp_servers=(tool_pool.connected_servers if tool_pool is not None else None),  # s20
         )
         sys_prompt = get_system_prompt(ctx)
         if compact:                                   # s08: 管线（便宜优先）

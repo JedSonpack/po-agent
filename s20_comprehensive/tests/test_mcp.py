@@ -111,3 +111,17 @@ def test_toolpool_normalize_server_name():
     names = [t["name"] for t in pool.tools]
     assert "mcp__my_server__search" in names
     assert pool.run_tool("mcp__my_server__search", {}) == "ok"
+
+
+# ── s20 新增：ToolPool.connected_servers ──
+def test_toolpool_connected_servers_empty():
+    pool = ToolPool([], {})
+    assert pool.connected_servers == []
+
+
+def test_toolpool_connected_servers_after_connect():
+    pool = ToolPool([], {})
+    connect_mcp("docs")
+    assert pool.connected_servers == ["docs"]
+    connect_mcp("deploy")
+    assert pool.connected_servers == ["docs", "deploy"]
