@@ -1,12 +1,14 @@
-"""Agent Teams — MessageBus（文件收件箱）+ Team 类（队友 daemon 线程）+ lead 工具 handler。
+"""Team Protocols — MessageBus（文件收件箱）+ 协议状态机 + Team 类（idle loop）+ lead 工具。
 
-s06 Subagent 是一次性同步回总结；s15 队友是异步 daemon 线程，多轮（限 max_turns），经文件邮箱通信。
-每轮顶上注入 `<inbox>`，sliding window `messages[-20:]`，完成后倒序取 assistant text 作 summary 发给 lead。
-send_message 的 from = 队友名（lead handler 固定 from="lead"）。无 spawn_teammate 工具防组队递归。
+s15 队友是 max_turns 退出；s16 队友 idle loop 等待 inbox（shutdown_request/plan_approval_response）。
+两种协议一套机制：shutdown（Lead→队友握手关机）/ plan_approval（队友→Lead 提交计划审批）。
+request_id 贯穿请求-回复链；match_response 类型校验 + 幂等；consume_lead_inbox 统一路由。
 """
 import json
+import random
 import threading
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
@@ -25,12 +27,12 @@ class MessageBus:
         self.dir.mkdir(parents=True, exist_ok=True)
 
     def send(self, from_agent: str, to_agent: str, content: str,
-             msg_type: str = "message") -> None:
+             msg_type: str = "message", metadata: dict = None) -> None:
         msg = {"from": from_agent, "to": to_agent, "content": content,
-               "type": msg_type, "ts": time.time()}
+               "type": msg_type, "ts": time.time(), "metadata": metadata or {}}
         with open(self.dir / f"{to_agent}.jsonl", "a") as f:
             f.write(json.dumps(msg) + "\n")
-        print(f"  \033[33m[bus] {from_agent} → {to_agent}: {content[:50]}\033[0m")
+        print(f"  \033[33m[bus] {from_agent} → {to_agent}: ({msg_type}) {content[:50]}\033[0m")
 
     def read_inbox(self, agent: str) -> list:
         """消费式：读全部消息后删除邮箱文件。缺失返 []。"""
@@ -50,6 +52,62 @@ class MessageBus:
 
 BUS = MessageBus()
 active_teammates: dict = {}  # name → True（在跑）
+
+
+# ── 协议状态机（s16）──
+# 两种协议一套机制：shutdown（Lead→队友）/ plan_approval（队友→Lead）。
+# request_id 贯穿请求-回复链；match_response 类型校验 + 幂等。
+@dataclass
+class ProtocolState:
+    request_id: str
+    type: str        # "shutdown" | "plan_approval"
+    sender: str
+    target: str
+    status: str      # pending | approved | rejected
+    payload: str     # 计划文本或关机原因
+    created_at: float = field(default_factory=time.time)
+
+
+pending_requests: dict = {}  # request_id → ProtocolState
+
+
+def new_request_id() -> str:
+    return f"req_{random.randint(0, 999999):06d}"
+
+
+def match_response(response_type: str, request_id: str, approve: bool) -> None:
+    """经 request_id 关联回复与请求，类型校验 + 幂等。unknown/类型不匹配/已决议均 no-op。"""
+    state = pending_requests.get(request_id)
+    if not state:
+        return
+    if state.type == "shutdown" and response_type != "shutdown_response":
+        return
+    if state.type == "plan_approval" and response_type != "plan_approval_response":
+        return
+    if state.status != "pending":
+        return
+    state.status = "approved" if approve else "rejected"
+    icon = "✓" if approve else "✗"
+    color = "32" if approve else "31"
+    print(f"  \033[{color}m[protocol] {state.type} {icon} ({request_id}: {state.status})\033[0m")
+
+
+def consume_lead_inbox(route_protocol: bool = True) -> list:
+    """统一消费 lead 邮箱：route_protocol 时把 _response 消息经 match_response 路由，返全部消息。
+
+    run_check_inbox 与 cli wake 都调它，避免消息被读走但协议状态没更新。
+    """
+    msgs = BUS.read_inbox("lead")
+    if not msgs:
+        return []
+    if route_protocol:
+        for msg in msgs:
+            meta = msg.get("metadata", {})
+            req_id = meta.get("request_id", "")
+            msg_type = msg.get("type", "")
+            if req_id and msg_type.endswith("_response"):
+                match_response(msg_type, req_id, meta.get("approve", False))
+    return msgs
 
 
 def _extract_last_text(messages) -> str:
@@ -151,8 +209,62 @@ def run_send_message(to: str, content: str) -> str:
 
 
 def run_check_inbox() -> str:
-    msgs = BUS.read_inbox("lead")
+    """消费 lead 邮箱，路由协议响应，返带 [type] req:id 标签的格式。"""
+    msgs = consume_lead_inbox(route_protocol=True)
     if not msgs:
         return "(inbox empty)"
-    lines = [f"  [{m['from']}] {m['content'][:200]}" for m in msgs]
+    lines = []
+    for m in msgs:
+        meta = m.get("metadata", {})
+        req_id = meta.get("request_id", "")
+        tag = f" [{m['type']} req:{req_id}]" if req_id else f" [{m['type']}]"
+        lines.append(f"  [{m['from']}]{tag} {m['content'][:200]}")
     return "\n".join(lines)
+
+
+# ── Lead 协议工具（s16）──
+def run_request_shutdown(teammate: str) -> str:
+    """Lead 发关机握手请求：创建 pending ProtocolState + 发 shutdown_request。"""
+    req_id = new_request_id()
+    pending_requests[req_id] = ProtocolState(
+        request_id=req_id, type="shutdown", sender="lead", target=teammate,
+        status="pending", payload="")
+    BUS.send("lead", teammate, "Please shut down gracefully.", "shutdown_request",
+             {"request_id": req_id})
+    print(f"  \033[35m[protocol] shutdown_request → {teammate} ({req_id})\033[0m")
+    return f"Shutdown request sent to {teammate} (req: {req_id})"
+
+
+def run_request_plan(teammate: str, task: str) -> str:
+    """Lead 让队友提交计划（普通消息，无协议状态）。"""
+    BUS.send("lead", teammate, f"Please submit a plan for: {task}", "message")
+    return f"Asked {teammate} to submit a plan"
+
+
+def run_review_plan(request_id: str, approve: bool, feedback: str = "") -> str:
+    """Lead 审批计划：设状态 + 发 plan_approval_response 给提交者。"""
+    state = pending_requests.get(request_id)
+    if not state:
+        return f"Request {request_id} not found"
+    if state.status != "pending":
+        return f"Request {request_id} already {state.status}"
+    state.status = "approved" if approve else "rejected"
+    BUS.send("lead", state.sender, feedback or ("Approved" if approve else "Rejected"),
+             "plan_approval_response", {"request_id": request_id, "approve": approve})
+    icon = "✓" if approve else "✗"
+    print(f"  \033[32m[protocol] plan {icon} ({request_id})\033[0m")
+    return f"Plan {'approved' if approve else 'rejected'} ({request_id})"
+
+
+def _teammate_submit_plan(from_name: str, plan: str) -> str:
+    """队友提交计划给 Lead 审批：创建 plan_approval 状态 + 发 plan_approval_request。
+
+    注意：协议级请求，非代码级门控——提交后队友线程继续跑，仍可调 bash/write。
+    真实门控需阻塞队友工具分发直到审批回复。教学版只演示消息流程。
+    """
+    req_id = new_request_id()
+    pending_requests[req_id] = ProtocolState(
+        request_id=req_id, type="plan_approval", sender=from_name, target="lead",
+        status="pending", payload=plan)
+    BUS.send(from_name, "lead", plan, "plan_approval_request", {"request_id": req_id})
+    return f"Plan submitted ({req_id}). Waiting for approval..."

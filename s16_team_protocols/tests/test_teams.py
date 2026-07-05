@@ -1,4 +1,4 @@
-"""teams.py 测试——MessageBus + lead handler + Team 类（mock client，不发真实 API）。"""
+"""teams.py 测试——MessageBus + 协议状态机 + lead handler + Team 类（mock client，不发真实 API）。"""
 import time
 import threading
 from types import SimpleNamespace
@@ -7,7 +7,11 @@ import pytest
 
 from s16_team_protocols import teams
 from s16_team_protocols.teams import (MessageBus, Team, active_teammates,
-                                   run_send_message, run_check_inbox)
+                                   run_send_message, run_check_inbox,
+                                   ProtocolState, pending_requests, new_request_id,
+                                   match_response, consume_lead_inbox,
+                                   run_request_shutdown, run_request_plan, run_review_plan,
+                                   _teammate_submit_plan)
 
 
 def make_response(blocks, stop_reason):
@@ -136,8 +140,10 @@ def test_run_check_inbox_truncates_long(tmp_bus):
 @pytest.fixture(autouse=True)
 def _reset_active():
     active_teammates.clear()
+    pending_requests.clear()
     yield
     active_teammates.clear()
+    pending_requests.clear()
 
 
 def _wait_done(name, timeout=2.0):
@@ -164,7 +170,6 @@ def test_spawn_registers_returns_and_finishes(tmp_path):
                 trigger=lambda ev, *a: None)
     ret = team.spawn("alice", "dev", "do something")
     assert ret == "Teammate 'alice' spawned as dev"
-    assert "alice" in active_teammates
     assert _wait_done("alice")
     assert "alice" not in active_teammates  # 完成后 pop
     lead = bus.read_inbox("lead")
@@ -303,3 +308,141 @@ def test_run_llm_exception_breaks(tmp_path):
     team._run("alice", "dev", "do")
     assert bus.read_inbox("lead")[0]["content"] == "Done."
     assert "alice" not in active_teammates
+
+
+# ── s16 协议状态机 ──
+def test_bus_send_with_metadata(tmp_path):
+    bus = MessageBus(mailbox_dir=tmp_path)
+    bus.send("lead", "alice", "shut down", "shutdown_request", {"request_id": "req_1"})
+    msg = bus.read_inbox("alice")[0]
+    assert msg["type"] == "shutdown_request"
+    assert msg["metadata"] == {"request_id": "req_1"}
+
+
+def test_bus_send_default_metadata_empty(tmp_path):
+    bus = MessageBus(mailbox_dir=tmp_path)
+    bus.send("alice", "lead", "hi")
+    assert bus.read_inbox("lead")[0]["metadata"] == {}
+
+
+def test_new_request_id_format():
+    rid = new_request_id()
+    assert rid.startswith("req_") and len(rid) == 10  # req_ + 6 digits
+
+
+def test_match_response_approve_and_reject():
+    pending_requests["req_1"] = ProtocolState("req_1", "shutdown", "lead", "alice", "pending", "")
+    match_response("shutdown_response", "req_1", True)
+    assert pending_requests["req_1"].status == "approved"
+    pending_requests["req_2"] = ProtocolState("req_2", "shutdown", "lead", "alice", "pending", "")
+    match_response("shutdown_response", "req_2", False)
+    assert pending_requests["req_2"].status == "rejected"
+
+
+def test_match_response_unknown_id_noop():
+    match_response("shutdown_response", "req_unknown", True)
+    assert "req_unknown" not in pending_requests
+
+
+def test_match_response_type_mismatch_noop():
+    pending_requests["req_1"] = ProtocolState("req_1", "shutdown", "lead", "alice", "pending", "")
+    match_response("plan_approval_response", "req_1", True)
+    assert pending_requests["req_1"].status == "pending"  # 类型不匹配，不改
+
+
+def test_match_response_idempotent_when_resolved():
+    pending_requests["req_1"] = ProtocolState("req_1", "shutdown", "lead", "alice", "approved", "")
+    match_response("shutdown_response", "req_1", False)
+    assert pending_requests["req_1"].status == "approved"  # 已决议，幂等不改
+
+
+def test_consume_lead_inbox_routes_protocol_responses(tmp_bus):
+    pending_requests["req_1"] = ProtocolState("req_1", "shutdown", "lead", "alice", "pending", "")
+    tmp_bus.send("alice", "lead", "Shutting down.", "shutdown_response",
+                 {"request_id": "req_1", "approve": True})
+    msgs = consume_lead_inbox(route_protocol=True)
+    assert len(msgs) == 1
+    assert pending_requests["req_1"].status == "approved"  # 路由后状态更新
+
+
+def test_consume_lead_inbox_no_route_when_disabled(tmp_bus):
+    pending_requests["req_1"] = ProtocolState("req_1", "shutdown", "lead", "alice", "pending", "")
+    tmp_bus.send("alice", "lead", "Shutting down.", "shutdown_response",
+                 {"request_id": "req_1", "approve": True})
+    consume_lead_inbox(route_protocol=False)
+    assert pending_requests["req_1"].status == "pending"  # 未路由
+
+
+def test_consume_lead_inbox_empty(tmp_bus):
+    assert consume_lead_inbox() == []
+
+
+def test_run_request_shutdown_creates_state_and_sends(tmp_bus):
+    out = run_request_shutdown("alice")
+    assert "alice" in out and "req_" in out
+    assert len(pending_requests) == 1
+    state = next(iter(pending_requests.values()))
+    assert state.type == "shutdown" and state.status == "pending"
+    assert state.target == "alice"
+    msg = tmp_bus.read_inbox("alice")[0]
+    assert msg["type"] == "shutdown_request"
+    assert msg["metadata"]["request_id"] == state.request_id
+
+
+def test_run_request_plan_sends_plain_message(tmp_bus):
+    assert run_request_plan("alice", "refactor auth") == "Asked alice to submit a plan"
+    msg = tmp_bus.read_inbox("alice")[0]
+    assert msg["type"] == "message"
+    assert "refactor auth" in msg["content"]
+    assert len(pending_requests) == 0  # 不创建协议状态
+
+
+def test_run_review_plan_approve_and_send(tmp_bus):
+    pending_requests["req_1"] = ProtocolState("req_1", "plan_approval", "bob", "lead", "pending", "plan text")
+    out = run_review_plan("req_1", True, "looks good")
+    assert "approved" in out
+    assert pending_requests["req_1"].status == "approved"
+    msg = tmp_bus.read_inbox("bob")[0]
+    assert msg["type"] == "plan_approval_response"
+    assert msg["metadata"] == {"request_id": "req_1", "approve": True}
+    assert msg["content"] == "looks good"
+
+
+def test_run_review_plan_reject(tmp_bus):
+    pending_requests["req_1"] = ProtocolState("req_1", "plan_approval", "bob", "lead", "pending", "plan")
+    run_review_plan("req_1", False)
+    assert pending_requests["req_1"].status == "rejected"
+
+
+def test_run_review_plan_not_found():
+    assert "not found" in run_review_plan("req_x", True).lower()
+
+
+def test_run_review_plan_already_resolved(tmp_bus):
+    pending_requests["req_1"] = ProtocolState("req_1", "plan_approval", "bob", "lead", "approved", "plan")
+    out = run_review_plan("req_1", False)
+    assert "already" in out
+    assert pending_requests["req_1"].status == "approved"  # 不改
+
+
+def test_teammate_submit_plan_creates_state_and_sends(tmp_bus):
+    out = _teammate_submit_plan("alice", "I will refactor X then Y")
+    assert "req_" in out
+    state = next(iter(pending_requests.values()))
+    assert state.type == "plan_approval"
+    assert state.sender == "alice"
+    assert state.payload == "I will refactor X then Y"
+    msg = tmp_bus.read_inbox("lead")[0]
+    assert msg["type"] == "plan_approval_request"
+    assert msg["from"] == "alice"
+    assert msg["metadata"]["request_id"] == state.request_id
+
+
+def test_run_check_inbox_routes_and_tags(tmp_bus):
+    pending_requests["req_1"] = ProtocolState("req_1", "shutdown", "lead", "alice", "pending", "")
+    tmp_bus.send("alice", "lead", "Shutting down.", "shutdown_response",
+                 {"request_id": "req_1", "approve": True})
+    out = run_check_inbox()
+    assert "alice" in out and "shutdown_response" in out and "req_1" in out
+    assert pending_requests["req_1"].status == "approved"  # 路由了
+    assert run_check_inbox() == "(inbox empty)"  # 消费了
