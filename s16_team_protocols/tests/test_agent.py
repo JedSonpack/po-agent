@@ -526,3 +526,33 @@ def test_check_inbox_dispatches_via_run_tool():
                trigger=lambda ev, *a: None)
     assert calls == [("check_inbox", {})]
     assert msgs[2]["content"][0]["content"] == "(inbox empty)"
+
+
+# ── s16 新增：协议工具经 run_tool 分发 ──
+def test_request_shutdown_dispatches_via_run_tool():
+    client = FakeClient([
+        make_response([tool_use_block("t1", "request_shutdown", {"teammate": "alice"})], "tool_use"),
+        make_response([text_block("ok")], "end_turn"),
+    ])
+    calls = []
+    msgs = [{"role": "user", "content": "x"}]
+    agent_loop(client=client, model="m", context=ctx(), tools=[], messages=msgs,
+               run_tool=lambda n, i: calls.append((n, i)) or "Shutdown request sent to alice (req: req_1)",
+               trigger=lambda ev, *a: None)
+    assert calls == [("request_shutdown", {"teammate": "alice"})]
+    assert "Shutdown request sent" in msgs[2]["content"][0]["content"]
+
+
+def test_review_plan_dispatches_via_run_tool():
+    client = FakeClient([
+        make_response([tool_use_block("t1", "review_plan",
+                                      {"request_id": "req_1", "approve": True})], "tool_use"),
+        make_response([text_block("ok")], "end_turn"),
+    ])
+    calls = []
+    msgs = [{"role": "user", "content": "x"}]
+    agent_loop(client=client, model="m", context=ctx(), tools=[], messages=msgs,
+               run_tool=lambda n, i: calls.append((n, i)) or "Plan approved (req_1)",
+               trigger=lambda ev, *a: None)
+    assert calls == [("review_plan", {"request_id": "req_1", "approve": True})]
+    assert "approved" in msgs[2]["content"][0]["content"]
