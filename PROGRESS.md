@@ -29,7 +29,7 @@
 | s16 | Team Protocols | ✅ | [`s16_team_protocols/`](s16_team_protocols/) | 队友之间的通信协议 |
 | s17 | Autonomous Agents | ✅ | [`s17_autonomous_agents/`](s17_autonomous_agents/) | 自治 agent，自己看板、自己认领 |
 | s18 | Worktree Isolation | ✅ | [`s18_worktree_isolation/`](s18_worktree_isolation/) | git worktree 隔离，并行互不干扰 |
-| s19 | MCP Tools | ⬜ | `s19_mcp_plugin/` | 用 MCP 标准协议外接工具 |
+| s19 | MCP Tools | ✅ | [`s19_mcp_plugin/`](s19_mcp_plugin/) | 用 MCP 标准协议外接工具 |
 | s20 | Comprehensive Agent | ⬜ | `s20_comprehensive/` | 全部机制集成到一个循环 |
 
 ## 已完成阶段详情
@@ -162,5 +162,12 @@
 - 计划：[`docs/superpowers/plans/2026-07-05-s18-worktree-isolation.md`](docs/superpowers/plans/2026-07-05-s18-worktree-isolation.md)
 - 要点：git worktree 目录隔离（`worktrees.py`）——`validate_worktree_name`（`^[A-Za-z0-9._-]{1,64}$`）+ `run_git` + `log_event`（events.jsonl）+ `create_worktree`（git worktree add -b wt/{name} HEAD + 可选 bind）+ `bind_task_to_worktree`（写 task.worktree，状态保持 pending）+ `_count_worktree_changes` + `remove_worktree`（有改动默认拒绝，discard_changes 强制）+ `keep_worktree` + 3 lead handler；`Task` 加 `worktree` 字段；`safe_path`/`run_bash`/`run_read`/`run_write` 加 `cwd` 参数；Team `wt_ctx`——`_run` 创建 wt_ctx，`_make_sub_run_tool` bash/read/write 仅当 wt_ctx 指向 worktree 时注入 cwd（无 wt 原样调 base 兼容 stub），`_claim_with_wt`（claim + task.worktree→设 wt_ctx）+ `_complete_reset_wt`（重置），`idle_poll` auto-claim 也经 `_claim_with_wt` 切 wt_ctx；`agent_loop`/cli 不变
 - 验收：371/371 测试通过（全量 2872）；实时跑通——Lead create_task + create_worktree（bind）→ `git worktree list` 显示 `.worktrees/demo-wt` on `wt/demo-wt`，task.worktree=demo-wt status=pending（bind 不改状态），keep_worktree 保留
+
+### s19 — MCP Plugin ✅
+- 目录：[`s19_mcp_plugin/`](s19_mcp_plugin/)（mcp / worktrees / tasks / teams / tools / cron / background / recovery / config / skills / hooks / todo / subagent / compact / memory / system_prompt / agent / cli / __main__ + tests）
+- 规格：[`docs/superpowers/specs/2026-07-05-s19-mcp-plugin-design.md`](docs/superpowers/specs/2026-07-05-s19-mcp-plugin-design.md)
+- 计划：[`docs/superpowers/plans/2026-07-05-s19-mcp-plugin.md`](docs/superpowers/plans/2026-07-05-s19-mcp-plugin.md)
+- 要点：MCP 标准协议外接工具（`mcp.py`）——`MCPClient`（register 模拟 tools/list + call_tool 模拟 tools/call，未知/异常返 MCP error）+ `normalize_mcp_name`（非 `[a-zA-Z0-9_-]`→`_`）+ `MOCK_SERVERS`（docs: search/get_version；deploy: trigger/status）+ `connect_mcp`（dedup/factory 查找/注册）+ `ToolPool` 类（`tools` 属性每次 read mcp_clients，builtin + `mcp__{server}__{tool}` 前缀；`run_tool` dispatch builtin+extra+mcp）；`agent_loop` 加 `tool_pool=None` 参数（提供时每轮刷新 tools/run_tool，connect_mcp 后下轮自动纳入 MCP 工具，无需显式 rebuild；未提供用 tools/run_tool 兼容 s18）；cli `ToolPool(cfg["tools"], TOOL_HANDLERS, {"task":..., "spawn_teammate":...})` 取代 make_run_tool；connect_mcp 进 TOOL_HANDLERS+make_tools（27）；system_prompt 缓存保留（context.tools 变→cache key 变→自动失效）
+- 验收：387/387 测试通过（全量 3259）；实时跑通——Lead connect_mcp("docs") 发现 search/get_version → 下一轮工具池含 `mcp__docs__search` → 模型调 `mcp__docs__search(['authentication'])` → MCPClient.call_tool 返 `[docs] Found 3 results for 'authentication'`
 
 > 后续每完成一个阶段，更新对应行的状态（⬜→🚧→✅），并在「已完成阶段详情」补一节。
