@@ -22,7 +22,7 @@ def _stringify(content) -> str:
 
 def agent_loop(*, client, model, context, tools, messages, run_tool,
                trigger: Callable, nag=None, compact=None, memory=None,
-               max_tokens: int = DEFAULT_MAX_TOKENS) -> None:
+               max_tokens: int = DEFAULT_MAX_TOKENS, tool_pool=None) -> None:
     state = RecoveryState(current_model=model)
     current_max_tokens = max_tokens
     # s09: 每轮注入相关记忆
@@ -30,6 +30,10 @@ def agent_loop(*, client, model, context, tools, messages, run_tool,
     memory_turn = (len(messages) - 1) if (memory and messages
                                           and isinstance(messages[-1].get("content"), str)) else None
     while True:
+        # s19: tool_pool 提供时每轮刷新 tools/run_tool（connect_mcp 后下轮自动纳入 MCP 工具）
+        if tool_pool is not None:
+            tools = tool_pool.tools
+            run_tool = tool_pool.run_tool
         # s14: 消费已触发的 cron 任务 → 注入 [Scheduled] 消息
         for job in consume_cron_queue():
             messages.append({"role": "user", "content": f"[Scheduled] {job.prompt}"})

@@ -556,3 +556,46 @@ def test_review_plan_dispatches_via_run_tool():
                trigger=lambda ev, *a: None)
     assert calls == [("review_plan", {"request_id": "req_1", "approve": True})]
     assert "approved" in msgs[2]["content"][0]["content"]
+
+
+# ── s19 新增：tool_pool 动态工具池 ──
+def test_tool_pool_refreshes_each_turn():
+    """tool_pool 提供时，agent_loop 每轮用 tool_pool.tools/run_tool；connect_mcp 后下轮纳入 MCP 工具。"""
+    from s19_mcp_plugin.mcp import ToolPool, mcp_clients
+
+    pool = ToolPool(
+        [{"name": "bash", "input_schema": {}},
+         {"name": "connect_mcp", "input_schema": {}}],
+        {"bash": lambda command: "OUT",
+         "connect_mcp": lambda name: __import__("s19_mcp_plugin.mcp", fromlist=["connect_mcp"]).connect_mcp(name)})
+
+    captured = []
+
+    class CapClient:
+        def __init__(self, responses):
+            self._r = list(responses)
+
+        @property
+        def messages(self):
+            return self
+
+        def create(self, **kw):
+            captured.append([t["name"] for t in kw.get("tools", [])])
+            return self._r.pop(0)
+
+    client = CapClient([
+        make_response([tool_use_block("t1", "connect_mcp", {"name": "docs"})], "tool_use"),
+        make_response([tool_use_block("t2", "mcp__docs__search", {"query": "auth"})], "tool_use"),
+        make_response([text_block("done")], "end_turn"),
+    ])
+    msgs = [{"role": "user", "content": "x"}]
+    agent_loop(client=client, model="m", context=ctx(), tools=[], messages=msgs,
+               run_tool=pool.run_tool, trigger=lambda ev, *a: None, tool_pool=pool)
+    # 第一轮 tools 不含 mcp__docs__search（未连接）
+    assert "mcp__docs__search" not in captured[0]
+    # connect_mcp 后第二轮 tools 含 mcp__docs__search
+    assert "mcp__docs__search" in captured[1]
+    # mcp 工具真被调用，结果在某个 tool_result 里
+    all_text = " ".join(str(m.get("content", "")) for m in msgs)
+    assert "Found 3 results for 'auth'" in all_text
+    mcp_clients.clear()
