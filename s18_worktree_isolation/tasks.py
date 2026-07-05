@@ -22,6 +22,7 @@ class Task:
     status: str          # pending | in_progress | completed
     owner: str | None
     blockedBy: list[str]
+    worktree: str | None = None   # s18: 绑定的 worktree 名（bind_task_to_worktree 写，状态保持 pending）
 
 
 def _task_path(task_id: str) -> Path:

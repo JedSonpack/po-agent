@@ -256,3 +256,28 @@ def test_scan_includes_unblocked_after_dep_completes(td):
     complete_task(t1.id)  # t1 完成 → t2 解锁
     unclaimed = scan_unclaimed_tasks()
     assert [t["id"] for t in unclaimed] == [t2.id]
+
+
+# ── s18 新增：Task.worktree 字段 ──
+def test_task_worktree_defaults_none(td):
+    t = create_task("x")
+    assert t.worktree is None
+    loaded = load_task(t.id)
+    assert loaded.worktree is None
+
+
+def test_task_worktree_persists(td):
+    t = create_task("x")
+    t.worktree = "auth-refactor"
+    save_task(t)
+    assert load_task(t.id).worktree == "auth-refactor"
+
+
+def test_old_task_json_without_worktree_loads(td):
+    """旧 JSON（无 worktree 字段）能加载（默认 None）。"""
+    import json
+    raw = {"id": "task_old", "subject": "old", "description": "",
+           "status": "pending", "owner": None, "blockedBy": []}
+    (td / "task_old.json").write_text(json.dumps(raw))
+    t = load_task("task_old")
+    assert t.worktree is None
