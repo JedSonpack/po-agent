@@ -1,51 +1,59 @@
-# s19: MCP Plugin
+# s20: Comprehensive Agent
 
-po-agent 第十九阶段，参照 `learn-claude-code/s19_mcp_plugin`。给 Agent 装个**插件系统**：外部服务通过 MCP 标准协议接入，Agent 发现（tools/list）+ 调用（tools/call），不需为每个服务重写工具。`connect_mcp` 连接 server，工具以 `mcp__{server}__{tool}` 前缀加入动态工具池。
+po-agent 第二十阶段（终点），参照 `learn-claude-code/s20_comprehensive`。**机制很多，循环一个**——把 s01-s19 全部机制归到同一个 `while True`。po-agent 累积式，s19 已含全部机制；s20 加"已连接 MCP server"系统提示段 + 综合冒烟收尾。
 
-## 本阶段完成（相对 s18）
+## 本阶段完成（相对 s19）
 
-在 s18 循环上做了一件核心事：**外部工具标准协议接入**。
+1. **`system_prompt.py`**：`build_context` 加 `mcp_servers` 字段；`assemble_system_prompt` 当 `mcp_servers` 非空 → 追加 `Connected MCP servers: docs, deploy` 段。缓存兼容：`mcp_servers` 进 context → cache key 含它；connect_mcp 后 tool_pool.tools 变 → context.tools 变 → 自动 cache miss → 重组（含 MCP 段）。`get_system_prompt` 的 `[assembled] sections` 日志加 `mcp`。
+2. **`mcp.py` ToolPool**：加 `connected_servers` 属性（`list(mcp_clients.keys())`）。
+3. **`agent.py`**：`build_context(..., mcp_servers=tool_pool.connected_servers if tool_pool else None)`——tool_pool 提供时把已连接 server 名注入 system prompt。
+- **保留 s19 全部（= s01-s19 全部机制）**：工具+权限（s02-s03 hooks）+ hooks（s04）+ todo（s05）+ subagent（s06）+ skills（s07）+ compact（s08）+ memory（s09）+ system_prompt（s10）+ recovery（s11）+ tasks（s12）+ background（s13）+ cron（s14）+ teams（s15）+ protocols（s16）+ autonomous（s17）+ worktree（s18）+ MCP（s19）。**27 工具**。
+- 核心循环不变：`while True: LLM → 有 tool_use？是→PreToolUse+权限→分发(builtin/MCP/background)→PostToolUse→tool_result 回 messages→下一轮 / 否→Stop hooks→返回`。
 
-1. **`mcp.py`**（新模块）：
-   - **`MCPClient`**：`name`/`tools`/`_handlers`；`register(tool_defs, handlers)`（模拟 tools/list）、`call_tool(tool_name, args)`（模拟 tools/call，未知/异常返 MCP error）。
-   - **`normalize_mcp_name`**：非 `[a-zA-Z0-9_-]` → `_`。
-   - **`MOCK_SERVERS`**：`docs`（search/get_version，readOnly）+ `deploy`（trigger/status，destructive/readOnly）。教学版 mock；真实版 stdio JSON-RPC 子进程。
-   - **`connect_mcp(name)`**：dedup → factory 查找（未知列可用）→ 注册 → 返发现工具列表。
-   - **`ToolPool`** 类（DI）：`builtin_tools` + `builtin_handlers` + `extra`；`tools` 属性每次 read `mcp_clients`（builtin + `mcp__{server}__{tool}` 前缀）；`run_tool` dispatch builtin+extra+mcp。connect_mcp 后下一轮自动纳入新工具。
-   - `run_connect_mcp` lead handler。
-2. **`tools.py`/`config.py`**：`TOOL_HANDLERS` += `connect_mcp`（→ 27）；`make_tools()` += connect_mcp（→ 27）。
-3. **`agent.py`**：加 `tool_pool=None` 参数。提供时每轮 while 顶部 `tools = tool_pool.tools`、`run_tool = tool_pool.run_tool`（connect_mcp 后下轮自动纳入 MCP 工具，无需显式 rebuild）。未提供时用 `tools`/`run_tool` 参数（s18 测试兼容）。system_prompt 缓存保留——`context.tools` 变化时 cache key 变 → 自动失效。
-4. **`cli.py`**：`ToolPool(cfg["tools"], TOOL_HANDLERS, {"task":..., "spawn_teammate":...})` 取代 `make_run_tool`，传 `tool_pool=tool_pool`。
-- **保留 s18 全部**（worktree + 自治 + 协议 + MessageBus + 事件队列 cli + cron + background + recovery + system_prompt + hooks/nag/compact/memory/skills/subagent）。Teammate 工具不变（MCP 仅 Lead）。
-- 比 s18 多了**插件扩展**：任意语言实现的 MCP server 接入即用，`mcp__` 前缀防冲突。
+## 循环中各机制的位置
+| 位置 | 机制 |
+|------|------|
+| 用户输入前后 | UserPromptSubmit hooks |
+| LLM 前 | cron queue 注入 `[Scheduled]` / background `<task_notification>` / compact 管线 / memory+skills+MCP 组装 system prompt |
+| LLM 调用 | recovery（429/529 退避、max_tokens 升级、prompt too long→reactive compact） |
+| 工具执行前 | PreToolUse hooks + permission |
+| 工具分发 | ToolPool（builtin 27 + mcp__server__tool 动态） |
+| 工具执行时 | background dispatch（慢 bash → daemon thread + 占位） |
+| 工具执行后 | PostToolUse hooks |
+| 停止时 | Stop hooks（统计）+ memory 提取/整合 |
 
 ## 结构
-- `mcp.py` — MCPClient + normalize + MOCK_SERVERS + connect_mcp + ToolPool + run_connect_mcp
-- `agent.py` — agent_loop 加 tool_pool 参数（每轮刷新）
-- `tools.py` — TOOL_HANDLERS 加 connect_mcp
-- `config.py` — make_tools 加 connect_mcp（27）
-- `cli.py` — ToolPool 接线
-- 其余模块同 s18
+- `system_prompt.py` — build_context/assemble 加 mcp_servers 段
+- `mcp.py` — ToolPool 加 connected_servers
+- `agent.py` — build_context 注入 mcp_servers
+- 其余模块同 s19（全部机制共存）
 
 ## 运行
 ```sh
 source ../.venv/bin/activate   # 或 source .venv/bin/activate
-python -m s19_mcp_plugin
+python -m s20_comprehensive
 ```
 
-## 使用示例
-
+## 综合冒烟
 ```
-s19 >> Connect to the docs MCP server and search for "auth".
-  [mcp] connected: docs → ['search', 'get_version']      ← connect_mcp 发现工具
-  [assembled] sections: identity, tools, workspace, skills   ← 工具池变了 → 重组 prompt
-  [HOOK] mcp__docs__search(['auth'])                      ← mcp__docs__ 前缀工具可用了
-  [docs] Found 3 results for 'auth'                       ← MCP server 返回
+s20 >> Plan with todo_write: inspect repo. Then connect docs MCP and search "agent loop". Then glob *.py.
+  [assembled] sections: identity, tools, workspace, skills
+  [HOOK] todo_write([...])                              ← s05 todo 规划
+  ## Current Tasks
+  [HOOK] connect_mcp(['docs'])                          ← s19 MCP 连接
+  [mcp] connected: docs → ['search', 'get_version']
+  [assembled] sections: ..., mcp                        ← s20 MCP 段出现
+  [HOOK] mcp__docs__search(['agent loop'])              ← MCP 工具调用
+  [docs] Found 3 results for 'agent loop'
+  [HOOK] glob(['*.py'])                                 ← s02 工具
+  ...
 ```
-
-Lead 调 connect_mcp("docs") 发现 search/get_version；下一轮工具池含 `mcp__docs__search`/`mcp__docs__get_version`；模型调 `mcp__docs__search` → MCPClient.call_tool → mock server 返回结果。
+todo + MCP + glob 多机制一轮跑通。
 
 ## 测试
 ```sh
-pytest s19_mcp_plugin/tests -v
+pytest s20_comprehensive/tests -v
 ```
+
+## 终点
+s01→s20，代码表面越来越复杂，核心始终是 `while True: LLM → tool_use? → 执行 → 回 messages`。模型负责判断；harness 把环境/工具/权限/记忆/团队/外部能力组织好。**机制很多，循环一个。**
