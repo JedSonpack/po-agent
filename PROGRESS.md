@@ -30,7 +30,7 @@
 | s17 | Autonomous Agents | ✅ | [`s17_autonomous_agents/`](s17_autonomous_agents/) | 自治 agent，自己看板、自己认领 |
 | s18 | Worktree Isolation | ✅ | [`s18_worktree_isolation/`](s18_worktree_isolation/) | git worktree 隔离，并行互不干扰 |
 | s19 | MCP Tools | ✅ | [`s19_mcp_plugin/`](s19_mcp_plugin/) | 用 MCP 标准协议外接工具 |
-| s20 | Comprehensive Agent | ⬜ | `s20_comprehensive/` | 全部机制集成到一个循环 |
+| s20 | Comprehensive Agent | ✅ | [`s20_comprehensive/`](s20_comprehensive/) | 全部机制集成到一个循环 |
 
 ## 已完成阶段详情
 
@@ -169,5 +169,20 @@
 - 计划：[`docs/superpowers/plans/2026-07-05-s19-mcp-plugin.md`](docs/superpowers/plans/2026-07-05-s19-mcp-plugin.md)
 - 要点：MCP 标准协议外接工具（`mcp.py`）——`MCPClient`（register 模拟 tools/list + call_tool 模拟 tools/call，未知/异常返 MCP error）+ `normalize_mcp_name`（非 `[a-zA-Z0-9_-]`→`_`）+ `MOCK_SERVERS`（docs: search/get_version；deploy: trigger/status）+ `connect_mcp`（dedup/factory 查找/注册）+ `ToolPool` 类（`tools` 属性每次 read mcp_clients，builtin + `mcp__{server}__{tool}` 前缀；`run_tool` dispatch builtin+extra+mcp）；`agent_loop` 加 `tool_pool=None` 参数（提供时每轮刷新 tools/run_tool，connect_mcp 后下轮自动纳入 MCP 工具，无需显式 rebuild；未提供用 tools/run_tool 兼容 s18）；cli `ToolPool(cfg["tools"], TOOL_HANDLERS, {"task":..., "spawn_teammate":...})` 取代 make_run_tool；connect_mcp 进 TOOL_HANDLERS+make_tools（27）；system_prompt 缓存保留（context.tools 变→cache key 变→自动失效）
 - 验收：387/387 测试通过（全量 3259）；实时跑通——Lead connect_mcp("docs") 发现 search/get_version → 下一轮工具池含 `mcp__docs__search` → 模型调 `mcp__docs__search(['authentication'])` → MCPClient.call_tool 返 `[docs] Found 3 results for 'authentication'`
+
+### s20 — Comprehensive Agent ✅（终点，20/20）
+- 目录：[`s20_comprehensive/`](s20_comprehensive/)（全部 s01-s19 模块 + system_prompt/mcp/agent 增强）
+- 规格：[`docs/superpowers/specs/2026-07-05-s20-comprehensive-design.md`](docs/superpowers/specs/2026-07-05-s20-comprehensive-design.md)
+- 计划：[`docs/superpowers/plans/2026-07-05-s20-comprehensive.md`](docs/superpowers/plans/2026-07-05-s20-comprehensive.md)
+- 要点：全部机制归到一个循环（po-agent 累积式，s19 已含 s01-s18 全部机制；s20 加 MCP 提示段收尾）——`system_prompt.py` `build_context` 加 `mcp_servers` 字段 + `assemble_system_prompt` 当非空追加 `Connected MCP servers: ...` 段（缓存兼容：进 context → cache key 含它，connect_mcp 后 tools 变→自动 miss→重组）；`mcp.py` ToolPool 加 `connected_servers` 属性；`agent.py` `build_context(..., mcp_servers=tool_pool.connected_servers if tool_pool else None)`；保留 s19 全部（27 工具 + 工具+权限/hooks/todo/subagent/skills/compact/memory/system_prompt/recovery/tasks/background/cron/teams/protocols/autonomous/worktree/MCP）；核心循环不变
+- 验收：396/396 测试通过（全量 3655）；综合冒烟跑通——todo_write 规划 + connect_mcp("docs") + `[assembled] sections: ..., mcp`（MCP 段出现）+ mcp__docs__search + glob + Stop hooks，多机制一轮共存
+
+---
+
+## 全程总结
+
+20 阶段全部完成（s01-s20）。每阶段独立自包含包，累积式（保留上阶段全部机制）+ DI（agent_loop 依赖注入）+ TDD（mock 化，不发真实 API）。核心循环始终是 `while True: LLM → tool_use? → 执行 → 回 messages`，每阶段在它上面叠加一个机制。全量 3655 测试通过。
+
+**机制很多，循环一个。**
 
 > 后续每完成一个阶段，更新对应行的状态（⬜→🚧→✅），并在「已完成阶段详情」补一节。
