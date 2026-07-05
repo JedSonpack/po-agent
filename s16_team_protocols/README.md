@@ -1,50 +1,58 @@
-# s15: Agent Teams
+# s16: Team Protocols
 
-po-agent 第十五阶段，参照 `learn-claude-code/s15_agent_teams`。加**队友**：Lead 调 `spawn_teammate` 启动 daemon 线程队友，各自跑简化循环，经文件收件箱（`.mailboxes/*.jsonl`）异步通信。把"一次性子 agent"升级成"多轮通信队友"——Lead 收件箱有消息就 wake 一轮 turn 注入 `[Inbox]`。
+po-agent 第十六阶段，参照 `learn-claude-code/s16_team_protocols`。给队友加**协议**：结构化请求-响应握手。Lead 调 `request_shutdown` 发关机请求，队友 idle 等待收到后回复 `shutdown_response` 确认，经 `request_id` 关联、`match_response` 路由。把 s15 的松散消息升级成 pending → approved/rejected 状态机。
 
-## 本阶段完成（相对 s14）
+## 本阶段完成（相对 s15）
 
-在 s14 循环上做了一件核心事：**多 agent 组队异步协作**。
+在 s15 循环上做了一件核心事：**结构化请求-响应协议**。
 
-1. **`teams.py`**：
-   - **`MessageBus`**：文件收件箱（`.mailboxes/{agent}.jsonl`）；`send`=append、`read_inbox`=读+unlink（消费式）、`peek`=非消费式（inbox_poller wake 条件）。`mailbox_dir` 可注入（测试用 tmp_path）。
-   - **`Team` 类**（DI：client/model/bus/base_handlers/sub_tools/trigger）：`spawn(name,role,prompt)` 起 daemon 线程跑 `_run`——4 工具（bash/read/write/send_message），max 10 轮，每轮顶上注入 `<inbox>`，`messages[-20:]` 滑动窗口，完成后倒序取 assistant text 作 summary 发 `result` 给 lead + pop `active_teammates`。`send_message` 的 `from`=队友名（per-spawn 绑定）；无 spawn_teammate 防组队递归。
-   - **3 lead 工具**：`run_send_message`（from 固定 lead）/`run_check_inbox`（消费 lead 邮箱）/`spawn_teammate`（=team.spawn，cli 经 `make_run_tool` 的 `extra` 接线）。
-2. **`background.py`** 加 `has_pending_background()`（非消费式，inbox_poller wake 条件）。
-3. **`cli.py` 重构为事件队列**：input_reader + inbox_poller（1s，`BUS.peek("lead") or has_pending_background()` → wake）；wake 排干 lead inbox + 后台通知，拼 `[Inbox]` 注入 history 起一轮 turn；"all teammates done" 公告。`run_turn(query=None,inject=None)` 不持锁，main 与 cron queue_processor 经 `agent_lock` 串行（s14 cron 机制不变）。
-- **保留 s14 全部**（cron + background + tasks + recovery + 段落化 system prompt + hooks/nag/compact/memory/skills/subagent）。3 工具进 `TOOL_HANDLERS`+`make_tools`（20）；新增 `make_team_tools`（4）。`agent_loop` 不变。
-- 比 s14 多了**异步队友通信**：队友在后台线程干活、随时通过文件邮箱汇报，Lead 收件箱有消息就自动 wake。
+1. **`teams.py` 协议状态机**：
+   - **`ProtocolState`** dataclass（request_id/type/sender/target/status/payload/created_at）+ `pending_requests` dict + `new_request_id()`。
+   - **`match_response(response_type, request_id, approve)`**：经 `request_id` 关联回复与请求，**类型校验**（shutdown 只接 `shutdown_response`，plan_approval 只接 `plan_approval_response`）+ **幂等**（非 pending 跳过）。
+   - **`consume_lead_inbox(route_protocol=True)`**：统一消费 lead 邮箱——`_response` 消息经 `match_response` 路由，返全部消息。`run_check_inbox` 与 cli wake 都调它，避免消息被读走但协议状态没更新。
+   - **3 lead 协议工具**：`run_request_shutdown`（创建 pending 状态 + 发 shutdown_request）/`run_request_plan`（发普通消息请队友提计划）/`run_review_plan`（设状态 + 发 plan_approval_response）。
+   - **`_teammate_submit_plan`**（`bus` 可注入）：队友提计划——创建 plan_approval 状态 + 发 plan_approval_request。
+   - **`MessageBus.send` 加 `metadata` 参数**（msg 含 `metadata` 键，向后兼容）。
+2. **`Team` 类 idle loop + dispatch**：
+   - **`_handle_inbox_message`**：`shutdown_request`→回复 `shutdown_response`+返 True（停）；`plan_approval_response`→注入 `[Plan approved/rejected]`；else False。
+   - **`_drain_inbox`**：分离协议消息（dispatch）与非协议（拼 `<inbox>` 注入），返 `(shutdown, got_msg)`。
+   - **`_idle_wait`**：LLM 非 tool_use 后轮询 inbox——`shutdown`/`message`/`timeout` 三态。`idle_poll_interval`/`max_idle_polls` 可注入（生产 1s/6000=100min 兜底；测试 0.01s/2）。
+   - **`_run` 改 idle loop**：`while not shutdown and turns < max_turns`——turn 顶上 drain（shutdown→break）→ LLM turn → 非 tool_use 则 idle（shutdown/timeout→break，message→continue）→ 执行工具。队友 5 工具（+submit_plan）。
+3. **`cli.py` wake 路径**：`BUS.read_inbox("lead")` → `consume_lead_inbox(route_protocol=True)`（路由协议响应 + 返 msgs 注入 `[Inbox]`）。事件队列/inbox_poller/agent_lock/cron 不变。
+- **保留 s15 全部**（MessageBus+Team+事件队列 cli+cron+background+tasks+recovery+system_prompt+hooks/nag/compact/memory/skills/subagent）。3 协议工具进 `TOOL_HANDLERS`+`make_tools`（23）；`make_team_tools` 加 submit_plan（5）。`agent_loop` 不变。
+- 比 s15 多了**协议握手**：关机/计划审批有 request_id 追溯 + 状态机；队友 idle 等待而非 max_turns 退出，能收 shutdown。
 
 ## 结构
-- `teams.py` — MessageBus + Team 类 + 3 lead handler
-- `agent.py` — `agent_loop`（不变；团队工具经 run_tool 分发，inbox 注入在 cli 层）
-- `background.py` — 加 `has_pending_background`
-- `config.py` — make_tools 加 3 团队工具（20）+ make_team_tools（4）
-- `tools.py` — TOOL_HANDLERS 加 send_message/check_inbox + TEAM_HANDLERS
-- `cli.py` — 事件队列 + inbox_poller + wake 注入 + Team 接线
-- `cron.py` / `tasks.py` / `recovery.py` / `system_prompt.py` / `skills.py` / `hooks.py` / `todo.py` / `subagent.py` / `compact.py` / `memory.py` — 同 s14
+- `teams.py` — 协议状态机 + MessageBus(+metadata) + Team(idle loop+dispatch) + 3 lead 协议工具 + _teammate_submit_plan
+- `agent.py` — `agent_loop`（不变；协议工具经 run_tool 分发）
+- `tools.py` — TOOL_HANDLERS 加 3 协议工具
+- `config.py` — make_tools 加 3 协议工具（23）+ make_team_tools 加 submit_plan（5）
+- `cli.py` — wake 路径用 consume_lead_inbox
+- 其余模块同 s15
 
 ## 运行
 ```sh
 source ../.venv/bin/activate   # 或 source .venv/bin/activate
-python -m s15_agent_teams
+python -m s16_team_protocols
 ```
 
 ## 使用示例
 
 ```
-s15 >> Spawn alice as a backend developer. Ask her to create schema.sql with a users table.
-  [teammate] alice spawned as backend developer
-  [bus] alice → lead: CREATE TABLE users (...)   ← alice 在后台线程干活、汇报
-  [teammate] alice finished
-  [wake: 1 inbox + 0 background → new turn]      ← inbox_poller 触发 wake
-  Alice has completed her task! ...               ← Lead 收到 alice 结果并总结
-  [all teammates done]
+s16 >> Spawn alice as a backend dev. Ask her to create config.txt.
+  [teammate] alice spawned as backend dev
+  [bus] alice → lead: (result) Created config.txt      ← alice 干完活 idle
+s16 >> Now request alice to shut down.
+  [protocol] shutdown_request → alice (req_004281)
+  [protocol] alice approved shutdown (req_004281)      ← alice idle 收到 → 回复
+  [protocol] shutdown ✓ (req_004281: approved)         ← consume_lead_inbox 路由 → 状态 approved
+  [wake: 1 inbox + 0 background → new turn]
+  Alice has shut down gracefully.
 ```
 
-Lead 调 spawn_teammate 起 alice 线程，alice 自己跑 LLM + write_file，完成后发 result 到 lead 邮箱；inbox_poller 检测到 → wake Lead 注入 `[Inbox]` 起一轮 turn。
+Lead 调 request_shutdown 发握手请求；alice idle 轮询收到 → 回 shutdown_response；Lead `consume_lead_inbox` 经 `request_id` 路由 → `pending_requests` 转 approved → `[Inbox]` 注入起 turn。关机握手完整：请求 → 确认 → 关机。
 
 ## 测试
 ```sh
-pytest s15_agent_teams/tests -v
+pytest s16_team_protocols/tests -v
 ```
