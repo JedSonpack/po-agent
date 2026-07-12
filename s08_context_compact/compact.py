@@ -104,7 +104,9 @@ class Compactor:
 
     def run_pipeline(self, messages):
         """L3→L1→L2（0 API 调用）。序：budget → snip → micro。"""
+        # L3: 将最近一次的工具返回结果 进行裁剪，防止让大块tool结果落到 Context Window
         self.tool_result_budget(messages)
+        # L1:
         messages[:] = snip_compact(messages)
         micro_compact(messages, self.keep_recent)
 
@@ -120,23 +122,28 @@ class Compactor:
                 f"</persisted-output>")
 
     def tool_result_budget(self, messages, max_bytes=200_000):
+        # 只处理最新一条 user 消息里的工具结果。
         last = messages[-1] if messages else None
         if not last or last.get("role") != "user" or not isinstance(last.get("content"), list):
             return messages
         blocks = [(i, b) for i, b in enumerate(last["content"])
                   if isinstance(b, dict) and b.get("type") == "tool_result"]
         total = sum(len(str(b.get("content", ""))) for _, b in blocks)
+        # 总量没超预算，就保留原样。
         if total <= max_bytes:
             return messages
+        # 优先压缩最大的结果，最快降到预算内。
         ranked = sorted(blocks, key=lambda p: len(str(p[1].get("content", ""))), reverse=True)
         for _, block in ranked:
             if total <= max_bytes:
                 break
             content = str(block.get("content", ""))
+            # 小结果不落盘，避免产生太多碎文件。
             if len(content) <= self.persist_threshold:
                 continue
             tid = block.get("tool_use_id", "unknown")
             block["content"] = self.persist_large_output(tid, content)
+            # 替换后重新计算，因为预览文本仍占空间。
             total = sum(len(str(b.get("content", ""))) for _, b in blocks)
         return messages
 

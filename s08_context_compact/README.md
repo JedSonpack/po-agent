@@ -24,6 +24,29 @@ po-agent 第八阶段，参照 `learn-claude-code/s08_context_compact`。在 LLM
 - `agent.py` — `agent_loop`（注入 `compact`，加管线 + compact 工具 + reactive）
 - `cli.py` / `__main__.py` — REPL（接线 `Compactor`）
 
+
+
+实际：
+```
+原始 messages
+    ↓
+L3 budget
+    ↓
+snip
+    ↓
+micro compact
+    ↓
+contextCollapse【学习版没有】
+构造粒度更细的请求视图
+    ↓
+如果 Collapse 未启用，或仍走手动 Compact
+    ↓
+先尝试 sessionMemoryCompact【学习版没有】
+    ├─ 成功：Memory + 最近消息
+    └─ 失败：传统 LLM 全量摘要
+```
+
+
 ## 运行
 ```sh
 source ../.venv/bin/activate
